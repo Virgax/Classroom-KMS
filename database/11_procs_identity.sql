@@ -476,8 +476,7 @@ BEGIN
             , @EntityId    = @UserId
             , @ActorUserId = @ActorUserId
             , @Severity    = 2
-            , @Summary     = N'Rol asignado al usuario.'
-            , @DetailJson  = NULL;
+            , @Summary     = N'Rol asignado al usuario.';
 
         COMMIT TRANSACTION;
         RETURN 0;
@@ -1150,6 +1149,11 @@ BEGIN
         IF sec.fn_UserHasPermission(@ActorUserId, N'org.manage') = 0
             THROW 50002, 'El usuario no tiene permiso para esta operacion.', 1;
 
+        /* Upsert real: sin @StationId, resolver por StationCode. Un sync
+           de estaciones re-ejecutado no debe duplicar. */
+        IF @StationId IS NULL
+            SELECT @StationId = StationId FROM org.Station WHERE StationCode = @StationCode;
+
         IF @StationId IS NULL
         BEGIN
             INSERT INTO org.Station (StationCode, [Name], AreaId, ProcessCode, EquipmentName, RequiresGating, GatingMode)
@@ -1169,6 +1173,93 @@ BEGIN
     END TRY
     BEGIN CATCH
         EXEC aud.usp_Error_Log @ProcedureName = N'org.usp_Station_Upsert', @ActorUserId = @ActorUserId;
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* =====================================================================
+   org.usp_EmployeeAssignment_Set
+
+   Ubica al empleado: sitio/departamento/area/estacion/turno vigente.
+   Cierra la asignacion abierta y abre la nueva (historia, nunca update).
+   La estacion es la unidad de gating: cambiarla dispara recalculo de
+   brechas de inmediato.
+
+   Errores: 50002 sin permiso, 50110 empleado no existe,
+            50111 estacion no existe
+   ===================================================================== */
+CREATE OR ALTER PROCEDURE org.usp_EmployeeAssignment_Set
+      @ActorUserId  INT
+    , @EmployeeId   INT
+    , @SiteId       INT = NULL
+    , @DepartmentId INT = NULL
+    , @AreaId       INT = NULL
+    , @StationId    INT = NULL
+    , @ShiftCode    NVARCHAR(20) = NULL
+    , @EffectiveFromUtc DATETIME2(3) = NULL
+    , @EmployeeAssignmentId INT = NULL OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF sec.fn_UserHasPermission(@ActorUserId, N'employee.position.manage') = 0
+            THROW 50002, 'El usuario no tiene permiso para esta operacion.', 1;
+
+        IF NOT EXISTS (SELECT 1 FROM org.Employee WHERE EmployeeId = @EmployeeId)
+            THROW 50110, 'El empleado no existe.', 1;
+
+        IF @StationId IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM org.Station
+                           WHERE StationId = @StationId AND IsDeleted = 0)
+            THROW 50111, 'La estacion no existe.', 1;
+
+        SET @EffectiveFromUtc = ISNULL(@EffectiveFromUtc, SYSUTCDATETIME());
+
+        BEGIN TRANSACTION;
+
+        UPDATE org.EmployeeAssignment
+        SET EffectiveToUtc = @EffectiveFromUtc
+        WHERE EmployeeId = @EmployeeId AND EffectiveToUtc IS NULL;
+
+        INSERT INTO org.EmployeeAssignment (EmployeeId, SiteId, DepartmentId, AreaId
+                                          , StationId, ShiftCode, EffectiveFromUtc)
+        VALUES (@EmployeeId, @SiteId, @DepartmentId, @AreaId
+              , @StationId, @ShiftCode, @EffectiveFromUtc);
+
+        SET @EmployeeAssignmentId = SCOPE_IDENTITY();
+
+        /* Espejo denormalizado en org.Employee para joins baratos. */
+        UPDATE org.Employee
+        SET SiteId = COALESCE(@SiteId, SiteId)
+          , DepartmentId = COALESCE(@DepartmentId, DepartmentId)
+          , AreaId = COALESCE(@AreaId, AreaId)
+          , ShiftCode = COALESCE(@ShiftCode, ShiftCode)
+          , ModifiedAtUtc = SYSUTCDATETIME(), ModifiedByUserId = @ActorUserId
+        WHERE EmployeeId = @EmployeeId;
+
+        EXEC aud.usp_Event_Log
+              @EventType   = N'EmployeeAssignment.Set'
+            , @EntityType  = N'Employee'
+            , @EntityId    = @EmployeeId
+            , @EmployeeId  = @EmployeeId
+            , @ActorUserId = @ActorUserId
+            , @Severity    = 2
+            , @Summary     = N'Asignacion de ubicacion/estacion actualizada.';
+
+        COMMIT TRANSACTION;
+
+        /* Fuera de la transaccion: una estacion nueva puede traer
+           requisitos nuevos. */
+        EXEC comp.usp_Gap_RecalculateForEmployee @ActorUserId = @ActorUserId, @EmployeeId = @EmployeeId;
+
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        EXEC aud.usp_Error_Log @ProcedureName = N'org.usp_EmployeeAssignment_Set', @ActorUserId = @ActorUserId;
         THROW;
     END CATCH;
 END;

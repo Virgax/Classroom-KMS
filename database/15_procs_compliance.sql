@@ -2123,5 +2123,86 @@ BEGIN
 END;
 GO
 
+/* =====================================================================
+   comp.usp_Station_SetRequirements
+
+   Define que requisitos exige una estacion (reemplaza el set completo).
+   JSON: [{"requirementId": 5, "isBlocking": true}, ...]
+   IsBlocking = 1 es lo que el gating evalua como bloqueante.
+
+   Errores: 50002 sin permiso, 50560 estacion no existe,
+            50561 JSON invalido, 50562 requisito inexistente o inactivo
+   ===================================================================== */
+CREATE OR ALTER PROCEDURE comp.usp_Station_SetRequirements
+      @ActorUserId      INT
+    , @StationId        INT
+    , @RequirementsJson NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF sec.fn_UserHasPermission(@ActorUserId, N'requirement.manage') = 0
+            THROW 50002, 'El usuario no tiene permiso para esta operacion.', 1;
+
+        IF NOT EXISTS (SELECT 1 FROM org.Station WHERE StationId = @StationId AND IsDeleted = 0)
+            THROW 50560, 'La estacion no existe.', 1;
+
+        IF ISJSON(@RequirementsJson) <> 1
+            THROW 50561, 'RequirementsJson no es JSON valido.', 1;
+
+        DECLARE @Incoming TABLE (RequirementId INT PRIMARY KEY, IsBlocking BIT NOT NULL);
+        INSERT INTO @Incoming
+        SELECT j.RequirementId, ISNULL(j.IsBlocking, 0)
+        FROM OPENJSON(@RequirementsJson) WITH (
+              RequirementId INT N'$.requirementId'
+            , IsBlocking    BIT N'$.isBlocking'
+        ) j;
+
+        IF EXISTS (SELECT 1 FROM @Incoming i
+                   WHERE NOT EXISTS (SELECT 1 FROM comp.CompetencyRequirement r
+                                     WHERE r.RequirementId = i.RequirementId AND r.[Status] = 1))
+            THROW 50562, 'Al menos un requisito no existe o no esta activo.', 1;
+
+        BEGIN TRANSACTION;
+
+        MERGE comp.StationCompetency AS tgt
+        USING (SELECT RequirementId, IsBlocking FROM @Incoming) AS src
+        ON tgt.StationId = @StationId AND tgt.RequirementId = src.RequirementId
+        WHEN MATCHED AND tgt.IsBlocking <> src.IsBlocking THEN
+            UPDATE SET IsBlocking = src.IsBlocking
+        WHEN NOT MATCHED BY TARGET THEN
+            INSERT (StationId, RequirementId, IsBlocking)
+            VALUES (@StationId, src.RequirementId, src.IsBlocking)
+        WHEN NOT MATCHED BY SOURCE AND tgt.StationId = @StationId THEN
+            DELETE;
+
+        EXEC aud.usp_Event_Log
+              @EventType   = N'Station.RequirementsSet'
+            , @EntityType  = N'Station'
+            , @EntityId    = @StationId
+            , @ActorUserId = @ActorUserId
+            , @Severity    = 3
+            , @Summary     = N'Requisitos de competencia de la estacion redefinidos.';
+
+        COMMIT TRANSACTION;
+
+        SELECT sc.StationCompetencyId, sc.RequirementId, sc.IsBlocking
+             , r.RequirementCode, r.Criticality
+        FROM comp.StationCompetency sc
+        JOIN comp.CompetencyRequirement r ON r.RequirementId = sc.RequirementId
+        WHERE sc.StationId = @StationId;
+
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        EXEC aud.usp_Error_Log @ProcedureName = N'comp.usp_Station_SetRequirements', @ActorUserId = @ActorUserId;
+        THROW;
+    END CATCH;
+END;
+GO
+
 PRINT '=== 15_procs_compliance.sql completado ===';
 GO

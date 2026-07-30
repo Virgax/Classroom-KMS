@@ -48,6 +48,7 @@ Funciones: `sec.fn_UserHasPermission(@UserId, @PermissionCode)`,
 | `org.usp_Employee_GetPositions` | R | Posiciones (primaria + secundarias) |
 | `org.usp_EmployeePosition_Assign` | W | Asigna posición; **dispara recálculo de brechas** |
 | `org.usp_EmployeePosition_End` | W | Cierra vigencia de una posición |
+| `org.usp_EmployeeAssignment_Set` | W | Ubica al empleado (sitio/depto/área/estación/turno); **dispara recálculo de brechas** |
 | `org.usp_Position_Create` / `_Update` / `_List` | W/R | Catálogo de posiciones |
 | `org.usp_Department_List` / `_GetTree` | R | Jerarquía organizacional |
 | `org.usp_Site_List`, `org.usp_Area_List`, `org.usp_Station_List` | R | Catálogos |
@@ -191,6 +192,7 @@ Funciones: `sec.fn_UserHasPermission(@UserId, @PermissionCode)`,
 | `comp.usp_Requirement_Update` | W | Actualiza (temporal table guarda la historia) |
 | `comp.usp_Requirement_SetSatisfiers` | W | Qué cursos/programas/evaluaciones lo satisfacen |
 | `comp.usp_Requirement_SetDocuments` | W | Documentos controlados ligados |
+| `comp.usp_Station_SetRequirements` | W | Requisitos que exige una estación (`IsBlocking` = lo que evalúa el gating) |
 | `comp.usp_Requirement_Deactivate` | W | Desactiva; certificaciones existentes se mantienen |
 | `comp.usp_Requirement_Get` / `_List` | R | Consulta |
 | `comp.usp_Requirement_GetForEmployee` | R | Requisitos efectivos (unión de todas sus posiciones + scopes) |
