@@ -186,8 +186,10 @@ BEGIN TRY
 
     SELECT @Processed = EmployeesProcessed FROM @Result;
 
+    DECLARE @GapJobStatus TINYINT;
+    SELECT @GapJobStatus = CASE WHEN Errors > 0 THEN 3 ELSE 2 END FROM @Result;
     EXEC ops.usp_JobRun_Finish @JobRunId = @JobRunId
-        , @Status = CASE WHEN (SELECT Errors FROM @Result) > 0 THEN 3 ELSE 2 END
+        , @Status = @GapJobStatus
         , @RecordsProcessed = @Processed
         , @Message = N''Brechas recalculadas.'';
 END TRY
@@ -346,11 +348,13 @@ BEGIN TRY
 
     /* Cola creciendo o dead-letter con contenido = el worker esta caido
        o mal configurado. Se marca Warning para que se vea en el tablero. */
+    DECLARE @JobStatus TINYINT = CASE WHEN @Dead > 0 OR @Pending > 500 THEN 3 ELSE 2 END
+          , @JobMessage NVARCHAR(200) = N''Pendientes: '' + CAST(@Pending AS NVARCHAR(12))
+                                      + N'' | Dead-letter: '' + CAST(@Dead AS NVARCHAR(12));
     EXEC ops.usp_JobRun_Finish @JobRunId = @JobRunId
-        , @Status = CASE WHEN @Dead > 0 OR @Pending > 500 THEN 3 ELSE 2 END
+        , @Status = @JobStatus
         , @RecordsProcessed = @Pending
-        , @Message = N''Pendientes: '' + CAST(@Pending AS NVARCHAR(12))
-                   + N'' | Dead-letter: '' + CAST(@Dead AS NVARCHAR(12));
+        , @Message = @JobMessage;
 END TRY
 BEGIN CATCH
     EXEC ops.usp_JobRun_Finish @JobRunId = @JobRunId, @Status = 4, @Message = ERROR_MESSAGE();

@@ -278,13 +278,15 @@ BEGIN
         WHERE w.EmployeeId = @EmployeeId
         ORDER BY w.RequestedAtUtc DESC;
 
+        DECLARE @AccessType TINYINT = CASE WHEN @ForExport = 1 THEN 2 ELSE 1 END
+              , @AccessPurpose NVARCHAR(50) = CASE WHEN @ForExport = 1 THEN N'RecordExport' ELSE N'RecordReview' END;
         EXEC aud.usp_DataAccess_Log
               @ActorUserId = @ActorUserId
-            , @AccessType  = CASE WHEN @ForExport = 1 THEN 2 ELSE 1 END
+            , @AccessType  = @AccessType
             , @EntityType  = N'TrainingRecord'
             , @SubjectEmployeeId = @EmployeeId
             , @RecordCount = 1
-            , @Purpose = CASE WHEN @ForExport = 1 THEN N'RecordExport' ELSE N'RecordReview' END;
+            , @Purpose = @AccessPurpose;
 
         RETURN 0;
     END TRY

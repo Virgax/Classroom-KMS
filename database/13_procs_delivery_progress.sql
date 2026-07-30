@@ -597,11 +597,11 @@ BEGIN
               , @CohortId INT, @DueAtUtc DATETIME2(3)
               , @EmployeeId INT, @CourseId INT, @NewId INT;
 
-        DECLARE bulk CURSOR LOCAL FAST_FORWARD FOR
+        DECLARE bulk_cur CURSOR LOCAL FAST_FORWARD FOR
             SELECT EmployeeCode, CourseCode, CohortId, DueAtUtc FROM @Requests;
 
-        OPEN bulk;
-        FETCH NEXT FROM bulk INTO @EmployeeCode, @CourseCode, @CohortId, @DueAtUtc;
+        OPEN bulk_cur;
+        FETCH NEXT FROM bulk_cur INTO @EmployeeCode, @CourseCode, @CohortId, @DueAtUtc;
         WHILE @@FETCH_STATUS = 0
         BEGIN
             SET @NewId = NULL;
@@ -622,9 +622,9 @@ BEGIN
             BEGIN CATCH
                 INSERT INTO @Results VALUES (@EmployeeCode, @CourseCode, NULL, 0, LEFT(ERROR_MESSAGE(), 400));
             END CATCH;
-            FETCH NEXT FROM bulk INTO @EmployeeCode, @CourseCode, @CohortId, @DueAtUtc;
+            FETCH NEXT FROM bulk_cur INTO @EmployeeCode, @CourseCode, @CohortId, @DueAtUtc;
         END;
-        CLOSE bulk; DEALLOCATE bulk;
+        CLOSE bulk_cur; DEALLOCATE bulk_cur;
 
         SELECT * FROM @Results;
         SELECT SUM(CAST(IsSuccess AS INT)) AS Succeeded
@@ -1452,18 +1452,19 @@ BEGIN
             THROW 50328, 'El numero de ocurrencias debe estar entre 1 y 52.', 1;
 
         DECLARE @GroupId UNIQUEIDENTIFIER = NEWID(), @i INT = 0, @NewId INT
-              , @Start DATETIME2(3), @Code NVARCHAR(40);
+              , @Start DATETIME2(3), @End DATETIME2(3), @Code NVARCHAR(40);
 
         WHILE @i < @Occurrences
         BEGIN
             SET @Start = DATEADD(DAY, @i * @IntervalDays, @FirstStartUtc);
+            SET @End   = DATEADD(MINUTE, @DurationMinutes, @Start);
             SET @Code  = @SessionCodePrefix + N'-' + RIGHT(N'00' + CAST(@i + 1 AS NVARCHAR(3)), 2);
 
             EXEC dlv.usp_Session_Create
                   @ActorUserId = @ActorUserId, @CourseId = @CourseId, @SessionCode = @Code
                 , @TitleEs = @TitleEs, @InstructorEmployeeId = @InstructorEmployeeId
                 , @ScheduledStartUtc = @Start
-                , @ScheduledEndUtc = DATEADD(MINUTE, @DurationMinutes, @Start)
+                , @ScheduledEndUtc = @End
                 , @LocationName = @LocationName, @MaxParticipants = @MaxParticipants
                 , @TrainingSessionId = @NewId OUTPUT;
 

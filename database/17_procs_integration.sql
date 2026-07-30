@@ -501,9 +501,10 @@ BEGIN
               @SyncRunId = @SyncRunId, @EmployeesJson = @EmployeesJson
             , @RowsLoaded = @RowsLoaded OUTPUT;
 
+        DECLARE @DeactivateMissing BIT = CASE WHEN @RunMode = 2 THEN 1 ELSE 0 END;
         EXEC intg.usp_EmployeeSync_Merge
               @SyncRunId = @SyncRunId, @ActorUserId = @ActorUserId
-            , @DeactivateMissing = CASE WHEN @RunMode = 2 THEN 1 ELSE 0 END;
+            , @DeactivateMissing = @DeactivateMissing;
 
         RETURN 0;
     END TRY

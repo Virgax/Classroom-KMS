@@ -867,13 +867,14 @@ BEGIN
             INSERT INTO dlv.EnrollmentEvidence (EnrollmentId, EvidenceType, EvidenceId, IsPassing, ScorePercent)
             VALUES (@EnrollmentId, 2, @PracticalAssessmentId, @IsPassed, @Percent);
 
+        DECLARE @EventSeverity TINYINT = CASE WHEN @IsPassed = 1 THEN 2 ELSE 3 END;
         EXEC aud.usp_Event_Log
               @EventType   = N'PracticalAssessment.Submitted'
             , @EntityType  = N'PracticalAssessment'
             , @EntityId    = @PracticalAssessmentId
             , @EmployeeId  = @EmployeeId
             , @ActorUserId = @ActorUserId
-            , @Severity    = CASE WHEN @IsPassed = 1 THEN 2 ELSE 3 END
+            , @Severity    = @EventSeverity
             , @Summary     = N'Evaluacion practica enviada y firmada.';
 
         COMMIT TRANSACTION;

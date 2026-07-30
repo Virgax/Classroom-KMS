@@ -110,7 +110,8 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (PermissionCode, Domain, DisplayNameEs, DisplayNameEn, [Description], IsSystem)
     VALUES (src.PermissionCode, src.Domain, src.DisplayName, src.DisplayName, src.[Description], 1);
 
-PRINT CONCAT('Permisos: ', (SELECT COUNT(*) FROM sec.Permission));
+DECLARE @Cnt_sec_Permission INT = (SELECT COUNT(*) FROM sec.Permission);
+PRINT CONCAT('Permisos: ', @Cnt_sec_Permission);
 GO
 
 /* =====================================================================
@@ -151,7 +152,8 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (RoleCode, DisplayNameEs, DisplayNameEn, [Description], IsSystem, IsActive)
     VALUES (src.RoleCode, src.DisplayNameEs, src.DisplayNameEn, src.[Description], 1, 1);
 
-PRINT CONCAT('Roles: ', (SELECT COUNT(*) FROM sec.Role));
+DECLARE @Cnt_sec_Role INT = (SELECT COUNT(*) FROM sec.Role);
+PRINT CONCAT('Roles: ', @Cnt_sec_Role);
 GO
 
 /* =====================================================================
@@ -249,7 +251,8 @@ WHEN NOT MATCHED BY TARGET THEN INSERT (RoleId, PermissionId) VALUES (src.RoleId
 WHEN NOT MATCHED BY SOURCE AND EXISTS (SELECT 1 FROM sec.Role r WHERE r.RoleId = tgt.RoleId AND r.IsSystem = 1)
      THEN DELETE;   /* mantiene los roles de sistema exactamente como este archivo los define */
 
-PRINT CONCAT('Asignaciones rol-permiso: ', (SELECT COUNT(*) FROM sec.RolePermission));
+DECLARE @Cnt_sec_RolePermission INT = (SELECT COUNT(*) FROM sec.RolePermission);
+PRINT CONCAT('Asignaciones rol-permiso: ', @Cnt_sec_RolePermission);
 GO
 
 /* =====================================================================
@@ -350,7 +353,8 @@ WHEN MATCHED AND tgt.ModifiedByUserId IS NULL THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (SettingKey, ScopeType, SettingValue, DataType, [Description])
     VALUES (src.SettingKey, 1, src.SettingValue, src.DataType, src.[Description]);
 
-PRINT CONCAT('Configuraciones: ', (SELECT COUNT(*) FROM ops.Setting));
+DECLARE @Cnt_ops_Setting INT = (SELECT COUNT(*) FROM ops.Setting);
+PRINT CONCAT('Configuraciones: ', @Cnt_ops_Setting);
 GO
 
 /* =====================================================================
@@ -387,7 +391,8 @@ WHEN MATCHED AND tgt.ModifiedByUserId IS NULL THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (FlagKey, [Description], IsEnabled, AudienceType)
     VALUES (src.FlagKey, src.[Description], src.IsEnabled, src.AudienceType);
 
-PRINT CONCAT('Feature flags: ', (SELECT COUNT(*) FROM ops.FeatureFlag));
+DECLARE @Cnt_ops_FeatureFlag INT = (SELECT COUNT(*) FROM ops.FeatureFlag);
+PRINT CONCAT('Feature flags: ', @Cnt_ops_FeatureFlag);
 GO
 
 /* =====================================================================
@@ -587,7 +592,8 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (TemplateKey, LocaleCode, Channel, [Subject], BodyTemplate, IsActive)
     VALUES (src.TemplateKey, src.LocaleCode, src.Channel, src.[Subject], src.BodyTemplate, 1);
 
-PRINT CONCAT('Plantillas de notificacion: ', (SELECT COUNT(*) FROM ops.NotificationTemplate));
+DECLARE @Cnt_ops_NotificationTemplate INT = (SELECT COUNT(*) FROM ops.NotificationTemplate);
+PRINT CONCAT('Plantillas de notificacion: ', @Cnt_ops_NotificationTemplate);
 GO
 
 /* =====================================================================

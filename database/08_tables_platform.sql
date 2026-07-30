@@ -131,30 +131,40 @@ GO
 
 IF OBJECT_ID(N'intg.SyncWatermark', N'U') IS NULL
 CREATE TABLE intg.SyncWatermark (
-      SourceKey         NVARCHAR(80)     NOT NULL   -- 'SPN.Employee'
+      SyncWatermarkId   INT              NOT NULL IDENTITY(1,1)
+    , SourceSystem      NVARCHAR(50)     NOT NULL   -- 'SPN','AIRLINK'
+    , SourceEntity      NVARCHAR(80)     NOT NULL   -- 'Employee','Station'
     , WatermarkValue    NVARCHAR(100)    NULL       -- timestamp o rowversion serializado
-    , WatermarkAtUtc    DATETIME2(3)     NULL
     , LastRunAtUtc      DATETIME2(3)     NULL
     , LastSuccessAtUtc  DATETIME2(3)     NULL
+    , LastRowCount      INT              NULL
     , ConsecutiveFailures INT            NOT NULL CONSTRAINT DF_SyncWatermark_Failures DEFAULT 0
-    , CONSTRAINT PK_SyncWatermark PRIMARY KEY CLUSTERED (SourceKey)
+    , IsEnabled         BIT              NOT NULL CONSTRAINT DF_SyncWatermark_IsEnabled DEFAULT 1
+    , ModifiedAtUtc     DATETIME2(3)     NULL
+    , CONSTRAINT PK_SyncWatermark PRIMARY KEY CLUSTERED (SyncWatermarkId)
+    , CONSTRAINT UQ_SyncWatermark UNIQUE (SourceSystem, SourceEntity)
 );
 GO
 
 IF OBJECT_ID(N'intg.SyncRun', N'U') IS NULL
 CREATE TABLE intg.SyncRun (
       SyncRunId         BIGINT           NOT NULL IDENTITY(1,1)
-    , SourceKey         NVARCHAR(80)     NOT NULL
-    , RunType           TINYINT          NOT NULL   -- 1=Incremental 2=Full 3=Manual
-    , StartedAtUtc      DATETIME2(3)     NOT NULL CONSTRAINT DF_SyncRun_StartedAtUtc DEFAULT SYSUTCDATETIME()
-    , FinishedAtUtc     DATETIME2(3)     NULL
+    , SourceSystem      NVARCHAR(50)     NOT NULL
+    , SourceEntity      NVARCHAR(80)     NOT NULL
+    , RunMode           TINYINT          NOT NULL CONSTRAINT DF_SyncRun_RunMode DEFAULT 1
+                                         -- 1=Incremental 2=Full 3=Manual
     , [Status]          TINYINT          NOT NULL CONSTRAINT DF_SyncRun_Status DEFAULT 1
-                                         -- 1=Running 2=Success 3=PartialSuccess 4=Failed
+                                         -- 1=Running 2=Success 3=Failed 4=SuccessWithErrors
+    , WatermarkFrom     NVARCHAR(100)    NULL
+    , TriggeredBy       NVARCHAR(100)    NULL
     , RowsRead          INT              NOT NULL CONSTRAINT DF_SyncRun_RowsRead DEFAULT 0
     , RowsInserted      INT              NOT NULL CONSTRAINT DF_SyncRun_RowsInserted DEFAULT 0
     , RowsUpdated       INT              NOT NULL CONSTRAINT DF_SyncRun_RowsUpdated DEFAULT 0
-    , RowsDeactivated   INT              NOT NULL CONSTRAINT DF_SyncRun_RowsDeactivated DEFAULT 0
-    , RowsRejected      INT              NOT NULL CONSTRAINT DF_SyncRun_RowsRejected DEFAULT 0
+    , RowsSkipped       INT              NOT NULL CONSTRAINT DF_SyncRun_RowsSkipped DEFAULT 0
+    , RowsErrored       INT              NOT NULL CONSTRAINT DF_SyncRun_RowsErrored DEFAULT 0
+    , StartedAtUtc      DATETIME2(3)     NOT NULL CONSTRAINT DF_SyncRun_StartedAtUtc DEFAULT SYSUTCDATETIME()
+    , CompletedAtUtc    DATETIME2(3)     NULL
+    , DurationMs        AS DATEDIFF(MILLISECOND, StartedAtUtc, CompletedAtUtc)
     , ErrorMessage      NVARCHAR(4000)   NULL
     , CONSTRAINT PK_SyncRun PRIMARY KEY CLUSTERED (SyncRunId)
 );
@@ -162,64 +172,68 @@ GO
 
 IF OBJECT_ID(N'intg.EmployeeStaging', N'U') IS NULL
 CREATE TABLE intg.EmployeeStaging (
-      EmployeeStagingId INT              NOT NULL IDENTITY(1,1)
+      EmployeeStagingId BIGINT           NOT NULL IDENTITY(1,1)
     , SyncRunId         BIGINT           NOT NULL
-    , EmployeeCode      NVARCHAR(30)     NOT NULL
-    , FirstName         NVARCHAR(100)    NULL
-    , LastName          NVARCHAR(100)    NULL
+    , SourceEmployeeCode NVARCHAR(30)    NOT NULL
+    , FirstName         NVARCHAR(80)     NULL
+    , LastName          NVARCHAR(80)     NULL
+    , FullNameRaw       NVARCHAR(200)    NULL
     , NationalId        NVARCHAR(30)     NULL
-    , Email             NVARCHAR(256)    NULL
-    , Phone             NVARCHAR(30)     NULL
-    , PositionCode      NVARCHAR(40)     NULL
-    , PositionName      NVARCHAR(150)    NULL
-    , DepartmentCode    NVARCHAR(30)     NULL
-    , DepartmentName    NVARCHAR(150)    NULL
-    , SiteCode          NVARCHAR(20)     NULL
-    , ShiftCode         NVARCHAR(20)     NULL
-    , SupervisorEmployeeCode NVARCHAR(30) NULL
-    , HireDate          DATETIME2(3)     NULL
-    , TerminationDate   DATETIME2(3)     NULL
-    , SourceStatus      NVARCHAR(30)     NULL
-    , IsActive          BIT              NULL
-    , SourceHash        VARBINARY(32)    NULL
-    , ValidationStatus  TINYINT          NOT NULL CONSTRAINT DF_EmployeeStaging_Validation DEFAULT 0
-                                         -- 0=Pending 1=Valid 2=Rejected
+    , Email             NVARCHAR(200)    NULL
+    , PositionTitleRaw  NVARCHAR(150)    NULL
+    , DepartmentRaw     NVARCHAR(150)    NULL
+    , SiteRaw           NVARCHAR(100)    NULL
+    , SupervisorCodeRaw NVARCHAR(30)     NULL
+    , HireDate          DATE             NULL
+    , TerminationDate   DATE             NULL
+    , EmploymentStatusRaw NVARCHAR(50)   NULL
+    , SourceRowHash     BINARY(32)       NULL       -- SHA-256: salta filas sin cambios
+    , IsValid           BIT              NOT NULL CONSTRAINT DF_EmployeeStaging_IsValid DEFAULT 1
     , ValidationMessage NVARCHAR(1000)   NULL
     , LoadedAtUtc       DATETIME2(3)     NOT NULL CONSTRAINT DF_EmployeeStaging_LoadedAtUtc DEFAULT SYSUTCDATETIME()
     , CONSTRAINT PK_EmployeeStaging PRIMARY KEY CLUSTERED (EmployeeStagingId)
 );
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_EmployeeStaging_Run_Code' AND object_id = OBJECT_ID(N'intg.EmployeeStaging'))
-    CREATE NONCLUSTERED INDEX IX_EmployeeStaging_Run_Code ON intg.EmployeeStaging (SyncRunId, EmployeeCode);
+    CREATE NONCLUSTERED INDEX IX_EmployeeStaging_Run_Code ON intg.EmployeeStaging (SyncRunId, SourceEmployeeCode);
 GO
 
 IF OBJECT_ID(N'intg.IntegrationError', N'U') IS NULL
 CREATE TABLE intg.IntegrationError (
       IntegrationErrorId BIGINT          NOT NULL IDENTITY(1,1)
     , SyncRunId         BIGINT           NULL
-    , SourceKey         NVARCHAR(80)     NOT NULL
-    , RecordKey         NVARCHAR(100)    NULL
-    , ErrorType         TINYINT          NOT NULL   -- 1=Validation 2=Mapping 3=Constraint 4=Unexpected
-    , ErrorMessage      NVARCHAR(2000)   NOT NULL
-    , RawDataJson       NVARCHAR(MAX)    NULL
+    , SourceSystem      NVARCHAR(50)     NOT NULL
+    , SourceEntity      NVARCHAR(80)     NOT NULL
+    , SourceKey         NVARCHAR(100)    NULL       -- clave natural de la fila que fallo
+    , ErrorCode         NVARCHAR(40)     NULL       -- 'UNRESOLVED_REFERENCE', ...
+    , ErrorMessage      NVARCHAR(MAX)    NOT NULL
+    , PayloadJson       NVARCHAR(MAX)    NULL
     , OccurredAtUtc     DATETIME2(3)     NOT NULL CONSTRAINT DF_IntegrationError_AtUtc DEFAULT SYSUTCDATETIME()
     , IsResolved        BIT              NOT NULL CONSTRAINT DF_IntegrationError_IsResolved DEFAULT 0
     , ResolvedAtUtc     DATETIME2(3)     NULL
     , ResolvedByUserId  INT              NULL
+    , ResolutionNote    NVARCHAR(400)    NULL
     , CONSTRAINT PK_IntegrationError PRIMARY KEY CLUSTERED (IntegrationErrorId)
 );
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_IntegrationError_Open' AND object_id = OBJECT_ID(N'intg.IntegrationError'))
+    CREATE NONCLUSTERED INDEX IX_IntegrationError_Open
+        ON intg.IntegrationError (SourceEntity, OccurredAtUtc DESC) WHERE IsResolved = 0;
 GO
 
 IF OBJECT_ID(N'intg.ExternalIdMap', N'U') IS NULL
 CREATE TABLE intg.ExternalIdMap (
       ExternalIdMapId   INT              NOT NULL IDENTITY(1,1)
-    , SystemCode        NVARCHAR(30)     NOT NULL   -- 'SPN','AIRLINK','NEXUS','ENTRA'
+    , SourceSystem      NVARCHAR(50)     NOT NULL   -- 'SPN','AIRLINK','NEXUS','ENTRA'
     , EntityType        NVARCHAR(60)     NOT NULL
     , ExternalId        NVARCHAR(100)    NOT NULL
+    , ExternalCode      NVARCHAR(100)    NULL
     , InternalId        INT              NOT NULL
+    , IsActive          BIT              NOT NULL CONSTRAINT DF_ExternalIdMap_IsActive DEFAULT 1
     , CreatedAtUtc      DATETIME2(3)     NOT NULL CONSTRAINT DF_ExternalIdMap_CreatedAtUtc DEFAULT SYSUTCDATETIME()
+    , ModifiedAtUtc     DATETIME2(3)     NULL
     , CONSTRAINT PK_ExternalIdMap PRIMARY KEY CLUSTERED (ExternalIdMapId)
-    , CONSTRAINT UQ_ExternalIdMap UNIQUE (SystemCode, EntityType, ExternalId)
+    , CONSTRAINT UQ_ExternalIdMap UNIQUE (SourceSystem, EntityType, ExternalId)
 );
 GO
 

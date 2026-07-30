@@ -272,7 +272,7 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TrainingSession_Instructor_Schedule' AND object_id = OBJECT_ID(N'dlv.TrainingSession'))
     CREATE NONCLUSTERED INDEX IX_TrainingSession_Instructor_Schedule
         ON dlv.TrainingSession (InstructorEmployeeId, ScheduledStartUtc, ScheduledEndUtc)
-        WHERE [Status] NOT IN (6) AND IsDeleted = 0;
+        WHERE [Status] <> 6 AND IsDeleted = 0;
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TrainingSession_Upcoming' AND object_id = OBJECT_ID(N'dlv.TrainingSession'))
     CREATE NONCLUSTERED INDEX IX_TrainingSession_Upcoming ON dlv.TrainingSession (ScheduledStartUtc)

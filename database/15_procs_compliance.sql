@@ -177,12 +177,11 @@ BEGIN
         AND NOT EXISTS (
                 SELECT 1
                 FROM comp.RequirementSatisfier g
+                LEFT JOIN @Evidence e2 ON e2.SatisfierType = g.SatisfierType
+                                      AND e2.SatisfierId = g.SatisfierId
                 WHERE g.RequirementId = r.RequirementId AND g.AlternativeGroup IS NOT NULL
                 GROUP BY g.AlternativeGroup
-                HAVING SUM(CASE WHEN EXISTS (SELECT 1 FROM @Evidence e2
-                                             WHERE e2.SatisfierType = g.SatisfierType
-                                               AND e2.SatisfierId = g.SatisfierId)
-                                THEN 1 ELSE 0 END) = 0)
+                HAVING SUM(CASE WHEN e2.SatisfierId IS NULL THEN 0 ELSE 1 END) = 0)
             /* el requisito debe tener al menos un satisfactor definido */
         AND COUNT(rs.RequirementSatisfierId) > 0;
 
@@ -309,6 +308,7 @@ BEGIN
                 SET ResolvedAtUtc = @NowUtc, CertificationId = @CertId, LastEvaluatedAtUtc = @NowUtc
                 WHERE EmployeeId = @EmployeeId AND RequirementId = @ReqId AND ResolvedAtUtc IS NULL;
 
+                DECLARE @IssueSummary NVARCHAR(400) = N'Certificacion emitida: ' + @CertNumber;
                 EXEC aud.usp_Event_Log
                       @EventType   = N'Certification.Issued'
                     , @EntityType  = N'Certification'
@@ -316,7 +316,7 @@ BEGIN
                     , @EmployeeId  = @EmployeeId
                     , @ActorUserId = @ActorUserId
                     , @Severity    = 2
-                    , @Summary     = N'Certificacion emitida: ' + @CertNumber;
+                    , @Summary     = @IssueSummary;
 
                 COMMIT TRANSACTION;
 
@@ -472,14 +472,16 @@ BEGIN
             , @PayloadCanonical = @PayloadCanonical, @AuthMethod = 1
             , @SignatureRecordId = @SigId OUTPUT;
 
+        DECLARE @ActivateSummary NVARCHAR(600)
+              = N'Revision activada: ' + @DocCode + N' ' + ISNULL(@RevLabel, N'')
+              + N'. Certificaciones marcadas para re-entrenamiento: ' + CAST(@Affected AS NVARCHAR(10));
         EXEC aud.usp_Event_Log
               @EventType   = N'DocumentRevision.Activated'
             , @EntityType  = N'ControlledDocumentRevision'
             , @EntityId    = @DocumentRevisionId
             , @ActorUserId = @ActorUserId
             , @Severity    = 4
-            , @Summary     = N'Revision activada: ' + @DocCode + N' ' + ISNULL(@RevLabel, N'')
-                           + N'. Certificaciones marcadas para re-entrenamiento: ' + CAST(@Affected AS NVARCHAR(10));
+            , @Summary     = @ActivateSummary;
 
         COMMIT TRANSACTION;
 
@@ -510,13 +512,15 @@ BEGIN
                         SET @Retrained = @Retrained + 1;
                     END;
 
+                    DECLARE @RetrainDedupeKey NVARCHAR(60)
+                          = N'DOCRETRAIN-' + CAST(@DocumentRevisionId AS NVARCHAR(12))
+                          + N'-' + CAST(@EmpId AS NVARCHAR(12));
                     EXEC ops.usp_Notification_Enqueue
                           @TemplateCode = N'Document.RetrainingRequired'
                         , @RecipientEmployeeId = @EmpId
                         , @Priority = 1
                         , @NotifySupervisor = 1
-                        , @DedupeKey = N'DOCRETRAIN-' + CAST(@DocumentRevisionId AS NVARCHAR(12))
-                                     + N'-' + CAST(@EmpId AS NVARCHAR(12));
+                        , @DedupeKey = @RetrainDedupeKey;
                 END TRY
                 BEGIN CATCH
                     EXEC aud.usp_Error_Log @ProcedureName = N'comp.usp_DocumentRevision_Activate'
@@ -683,7 +687,8 @@ BEGIN
            tienen ya una inscripcion abierta. */
         IF @AutoEnroll = 1
         BEGIN
-            DECLARE @ReqId INT, @NewEnrollmentId INT;
+            DECLARE @ReqId INT, @NewEnrollmentId INT
+                  , @EnrollActorUserId INT = ISNULL(@ActorUserId, 1);
             DECLARE gapcur CURSOR LOCAL FAST_FORWARD FOR
                 SELECT g.RequirementId
                 FROM comp.CompetencyGap g
@@ -699,7 +704,7 @@ BEGIN
                 BEGIN TRY
                     SET @NewEnrollmentId = NULL;
                     EXEC dlv.usp_Enrollment_CreateFromRequirement
-                          @ActorUserId = ISNULL(@ActorUserId, 1), @EmployeeId = @EmployeeId
+                          @ActorUserId = @EnrollActorUserId, @EmployeeId = @EmployeeId
                         , @RequirementId = @ReqId, @EnrollmentId = @NewEnrollmentId OUTPUT;
 
                     IF @NewEnrollmentId IS NOT NULL
@@ -1010,14 +1015,18 @@ BEGIN
         FETCH NEXT FROM expiring INTO @NotifCertId, @NotifEmployeeId, @NotifCertNumber, @NotifDays, @NotifModel;
         WHILE @@FETCH_STATUS = 0
         BEGIN
+            DECLARE @NotifPriority TINYINT = CASE WHEN @NotifDays <= 7 THEN 1 ELSE 2 END
+                  , @NotifySupervisor BIT  = CASE WHEN @NotifDays <= 7 THEN 1 ELSE 0 END
+                  , @NotifDedupeKey NVARCHAR(60)
+                      = N'CERT-EXP-' + CAST(@NotifCertId AS NVARCHAR(12))
+                      + N'-' + CAST(@NotifDays AS NVARCHAR(6));
             EXEC ops.usp_Notification_Enqueue
                   @TemplateCode = N'Certification.ExpiringSoon'
                 , @RecipientEmployeeId = @NotifEmployeeId
                 , @ModelJson = @NotifModel
-                , @Priority = CASE WHEN @NotifDays <= 7 THEN 1 ELSE 2 END
-                , @NotifySupervisor = CASE WHEN @NotifDays <= 7 THEN 1 ELSE 0 END
-                , @DedupeKey = N'CERT-EXP-' + CAST(@NotifCertId AS NVARCHAR(12))
-                             + N'-' + CAST(@NotifDays AS NVARCHAR(6));
+                , @Priority = @NotifPriority
+                , @NotifySupervisor = @NotifySupervisor
+                , @DedupeKey = @NotifDedupeKey;
 
             FETCH NEXT FROM expiring INTO @NotifCertId, @NotifEmployeeId, @NotifCertNumber, @NotifDays, @NotifModel;
         END;
@@ -1425,9 +1434,10 @@ BEGIN
             , @PayloadCanonical = @Payload, @AuthMethod = @AuthMethod
             , @SignatureRecordId = @SigId OUTPUT;
 
+        DECLARE @RevokeSummary NVARCHAR(400) = N'Certificacion revocada: ' + @CertNumber;
         EXEC aud.usp_Event_Log @EventType = N'Certification.Revoked', @EntityType = N'Certification'
            , @EntityId = @CertificationId, @EmployeeId = @EmployeeId, @ActorUserId = @ActorUserId
-           , @Severity = 4, @Summary = N'Certificacion revocada: ' + @CertNumber;
+           , @Severity = 4, @Summary = @RevokeSummary;
         COMMIT TRANSACTION;
 
         /* Revocar abre brechas y puede bloquear estaciones de inmediato. */
