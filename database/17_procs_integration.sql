@@ -318,6 +318,20 @@ BEGIN
         JOIN org.Employee e ON e.EmployeeCode = r.SourceEmployeeCode
         WHERE NOT EXISTS (SELECT 1 FROM @Changes c WHERE c.EmployeeId = e.EmployeeId);
 
+        /* --- 4b. Supervisores: segunda pasada -----------------------
+           En la carga inicial (o cuando jefe y subordinado vienen en el
+           mismo lote) el supervisor no existia al resolver la fila. Se
+           re-resuelve contra org.Employee ya poblado; aplica a TODO el
+           staging del lote, no solo a los cambiados. */
+        UPDATE e
+        SET e.SupervisorEmployeeId = sup.EmployeeId
+          , e.ModifiedAtUtc = @NowUtc, e.ModifiedByUserId = @ActorUserId
+        FROM org.Employee e
+        JOIN intg.EmployeeStaging st ON st.SourceEmployeeCode = e.EmployeeCode
+                                    AND st.SyncRunId = @SyncRunId AND st.IsValid = 1
+        JOIN org.Employee sup ON sup.EmployeeCode = st.SupervisorCodeRaw
+        WHERE ISNULL(e.SupervisorEmployeeId, -1) <> sup.EmployeeId;
+
         /* --- 5. Posiciones ----------------------------------------- */
         /* Cerrar la posicion primaria anterior si cambio, y abrir la nueva.
            org.EmployeePosition es historia: nunca se sobreescribe. */

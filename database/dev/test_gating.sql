@@ -1,6 +1,6 @@
 /* =====================================================================
    Prueba E2E: AIRLINK -> estaciones -> requisitos -> brechas -> gating
-   Escenario: Francisco (AL-0104) lleva semanas trabajando la estacion
+   Escenario: Francisco (DR0104) lleva semanas trabajando la estacion
    RXR-01 (IP68 test) segun AIRLINK, pero no tiene la certificacion.
    El sistema debe detectarlo ANTES que el auditor.
 
@@ -12,15 +12,15 @@ GO
 SET NOCOUNT ON;
 DECLARE @AdminUserId INT = (SELECT UserId FROM sec.[User] WHERE UserName = N'rperalta');
 
-PRINT '--- [1] Usuaria de Calidad: Yokasta (QUALITY_APPROVER) ---';
-DECLARE @QaUserId INT = (SELECT UserId FROM sec.[User] WHERE UserName = N'yminaya');
+PRINT '--- [1] Usuaria de Calidad: Yokasta DR0003 (QUALITY_APPROVER) ---';
+/* El aprovisionamiento masivo ya le creo el usuario (UserName = codigo).
+   Aqui solo se le suma el rol de Calidad. */
+DECLARE @QaUserId INT = (
+    SELECT u.UserId FROM sec.[User] u
+    JOIN org.Employee e ON e.EmployeeId = u.EmployeeId
+    WHERE e.EmployeeCode = N'DR0003' AND u.IsDeleted = 0);
 IF @QaUserId IS NULL
-BEGIN
-    DECLARE @YokEmpId INT = (SELECT EmployeeId FROM org.Employee WHERE EmployeeCode = N'AL-0003');
-    EXEC sec.usp_User_Create @ActorUserId = @AdminUserId, @EmployeeId = @YokEmpId
-       , @UserName = N'yminaya', @DisplayName = N'Yokasta Minaya'
-       , @Email = N'yminaya@airlink.com.do', @UserId = @QaUserId OUTPUT;
-END;
+    THROW 50000, 'Correr primero el aprovisionamiento (POST /api/admin/users/provision).', 1;
 DECLARE @QaRoleId INT = (SELECT RoleId FROM sec.Role WHERE RoleCode = N'QUALITY_APPROVER');
 IF NOT EXISTS (SELECT 1 FROM sec.UserRoleAssignment
                WHERE UserId = @QaUserId AND RoleId = @QaRoleId AND IsActive = 1 AND RevokedAtUtc IS NULL)
@@ -29,7 +29,7 @@ SELECT u.UserId, u.UserName, r.RoleCode
 FROM sec.[User] u
 JOIN sec.UserRoleAssignment ra ON ra.UserId = u.UserId AND ra.IsActive = 1
 JOIN sec.Role r ON r.RoleId = ra.RoleId
-WHERE u.UserName = N'yminaya';
+WHERE u.UserId = @QaUserId;
 
 PRINT '--- [2] Area TESTING + sync de estaciones desde AIRLINK ---';
 DECLARE @DeptProd INT = (SELECT DepartmentId FROM org.Department WHERE [Name] = N'Produccion');
@@ -63,7 +63,9 @@ CLOSE stc; DEALLOCATE stc;
 SELECT StationCode, [Name], ProcessCode, RequiresGating, GatingMode FROM org.Station ORDER BY StationCode;
 
 PRINT '--- [3] Competencia IP68-ROXER-OP + niveles (actor: Calidad) ---';
-SELECT @QaUserId = UserId FROM sec.[User] WHERE UserName = N'yminaya';
+SELECT @QaUserId = u.UserId FROM sec.[User] u
+JOIN org.Employee e ON e.EmployeeId = u.EmployeeId
+WHERE e.EmployeeCode = N'DR0003' AND u.IsDeleted = 0;
 DECLARE @CompId INT = (SELECT CompetencyId FROM comp.Competency WHERE CompetencyCode = N'IP68-ROXER-OP');
 IF @CompId IS NULL
 BEGIN
@@ -101,7 +103,7 @@ BEGIN
 END;
 
 PRINT '--- [5] Francisco asignado a RXR-01 (dispara recalculo de brechas) ---';
-DECLARE @FranId INT = (SELECT EmployeeId FROM org.Employee WHERE EmployeeCode = N'AL-0104');
+DECLARE @FranId INT = (SELECT EmployeeId FROM org.Employee WHERE EmployeeCode = N'DR0104');
 DECLARE @AreaTesting INT = (SELECT AreaId FROM org.Area WHERE AreaCode = N'TESTING');
 EXEC org.usp_EmployeeAssignment_Set @ActorUserId = @AdminUserId
    , @EmployeeId = @FranId, @DepartmentId = @DeptProd
@@ -117,12 +119,12 @@ WHERE g.EmployeeId = @FranId;
 PRINT '--- [7] Elegibilidad en RXR-01 (Shadow: registra, no bloquea) ---';
 DECLARE @Decision TINYINT;
 EXEC comp.usp_Eligibility_CheckEmployeeForStation
-      @EmployeeCode = N'AL-0104', @StationCode = N'RXR-01'
+      @EmployeeCode = N'DR0104', @StationCode = N'RXR-01'
     , @RequestSource = N'Nexus', @Decision = @Decision OUTPUT;
 SELECT DecisionCodigo = @Decision;  /* 1=Allowed 2=AllowedWithSupervision 3=Blocked */
 
 PRINT '--- [8] El hallazgo incomodo: AIRLINK dice que YA trabaja ahi ---';
-EXEC AIRLINK.dbo.usp_KMS_ProductionHistory_GetForEmployee @CodigoEmpleado = N'AL-0104';
+EXEC AIRLINK.dbo.usp_KMS_ProductionHistory_GetForEmployee @CodigoEmpleado = N'DR0104';
 
 PRINT '--- [9] Waiver de emergencia: pide admin, aprueba Calidad (SoD) ---';
 DECLARE @WaiverId INT = (SELECT WaiverId FROM comp.Waiver WHERE EmployeeId = @FranId AND RequirementId = @ReqId AND [Status] IN (1,2));
@@ -142,7 +144,7 @@ END;
 
 PRINT '--- [10] Elegibilidad tras waiver ---';
 EXEC comp.usp_Eligibility_CheckEmployeeForStation
-      @EmployeeCode = N'AL-0104', @StationCode = N'RXR-01'
+      @EmployeeCode = N'DR0104', @StationCode = N'RXR-01'
     , @RequestSource = N'Nexus', @Decision = @Decision OUTPUT;
 SELECT DecisionTrasWaiver = @Decision;
 

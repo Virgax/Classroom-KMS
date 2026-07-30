@@ -64,26 +64,30 @@ BEGIN
         SELECT
         /* ======================= >>> AJUSTAR <<< =============================
            Mapeo REAL de SPN (confirmado):
-             - dbo.Empleados     : Numero, Nombre, Apellido1, Apellido2,
-                                   Cedula, Estatus ('A' = activo),
-                                   Departamento, Posicion, Supervisor,
-                                   Fecha_Nombramiento
+             - dbo.Empleados     : codigo ('DR0002' — lo que el empleado
+                                   teclea al entrar), numero (2 — el entero
+                                   del codigo sin letras; la columna
+                                   supervisor guarda este numero),
+                                   nombre, apellido1, apellido2, cedula,
+                                   Estatus ('A' = activo), Departamento,
+                                   Posicion, Fecha_Nombramiento
              - dbo.Departamento  : Codigo -> Descripcion
              - dbo.Posiciones    : Codigo -> Descripcion
            Los alias (lado derecho) NO se tocan: son el contrato con el KMS.
            ==================================================================== */
-              CAST(e.Numero AS NVARCHAR(30)) AS employeeCode   -- clave natural; sera el usuario de login
-            , e.Nombre                       AS firstName
-            , LTRIM(RTRIM(CONCAT(e.Apellido1, N' ', ISNULL(e.Apellido2, N'')))) AS lastName
-            , e.Cedula                       AS nationalId     -- se enmascara en el KMS; ultimos 4 = PIN inicial
-            , e.Correo                       AS email           -- quitar esta linea si Empleados no tiene correo
+              e.codigo                       AS employeeCode   -- 'DR0002': clave natural y usuario de login
+            , e.nombre                       AS firstName
+            , LTRIM(RTRIM(CONCAT(e.apellido1, N' ', ISNULL(e.apellido2, N'')))) AS lastName
+            , e.cedula                       AS nationalId     -- se enmascara en el KMS; ultimos 4 = PIN inicial
+            , e.correo                       AS email           -- quitar esta linea si Empleados no tiene correo
             , p.Descripcion                  AS positionTitle
             , d.Descripcion                  AS department
             /* SPN no tiene columna de sede y la operacion es planta unica:
                se fija la sede del KMS. Debe coincidir con org.Site.[Name]
                o SiteCode. Ajustar si algun dia hay mas de una planta. */
             , N'Santo Domingo'               AS site
-            , sup.NumeroTexto                AS supervisorCode
+            /* supervisor guarda el NUMERO del jefe -> se devuelve su CODIGO */
+            , sup.codigo                     AS supervisorCode
             , e.Fecha_Nombramiento           AS hireDate
             /* Estatus: 'A' = activo. CUALQUIER otro valor entra como
                INACTIVO: el KMS lo desactiva y no puede iniciar sesion.
@@ -93,8 +97,8 @@ BEGIN
         FROM dbo.Empleados e
         LEFT JOIN dbo.Departamento d ON d.Codigo = e.Departamento
         LEFT JOIN dbo.Posiciones   p ON p.Codigo = e.Posicion
-        OUTER APPLY (SELECT CAST(s.Numero AS NVARCHAR(30)) AS NumeroTexto
-                     FROM dbo.Empleados s WHERE s.Numero = e.Supervisor) sup
+        OUTER APPLY (SELECT TOP (1) s.codigo
+                     FROM dbo.Empleados s WHERE s.numero = e.supervisor) sup
         /* SPN no expone fecha de modificacion: el sync corre siempre en
            modo FULL (RunMode = 2). El hash por fila del KMS hace que el
            costo del full diario sea bajo. @ModifiedSince queda ignorado. */

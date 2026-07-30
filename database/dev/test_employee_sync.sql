@@ -43,7 +43,7 @@ PRINT '--- [2] Resultado de la corrida ---';
 SELECT SyncRunId, RunMode, [Status], RowsRead, RowsInserted, RowsUpdated, RowsSkipped, RowsErrored, DurationMs
 FROM intg.SyncRun WHERE SyncRunId = @RunId;
 
-PRINT '--- [3] Empleados en el KMS (AL-0112 debe quedar INACTIVO) ---';
+PRINT '--- [3] Empleados en el KMS (DR0112 debe quedar INACTIVO) ---';
 SELECT EmployeeCode, FirstName, LastName, NationalIdMasked, IsActive
      , (SELECT [Name] FROM org.Department d WHERE d.DepartmentId = e.DepartmentId) AS Departamento
 FROM org.Employee e ORDER BY EmployeeCode;
@@ -67,8 +67,8 @@ DECLARE @RunId2 BIGINT;
 EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E-Rerun', @SyncRunId = @RunId2 OUTPUT;
 SELECT SyncRunId, RowsRead, RowsInserted, RowsUpdated, RowsSkipped FROM intg.SyncRun WHERE SyncRunId = @RunId2;
 
-PRINT '--- [7] Baja en SPN: AL-0110 pasa a Estatus T (no puede entrar) ---';
-UPDATE SPN.dbo.Empleados SET Estatus = N'T' WHERE Numero = N'AL-0110';
+PRINT '--- [7] Baja en SPN: DR0110 pasa a Estatus T (no puede entrar) ---';
+UPDATE SPN.dbo.Empleados SET Estatus = N'T' WHERE codigo = N'DR0110';
 
 CREATE TABLE #spn3 (EmployeesJson NVARCHAR(MAX));
 INSERT INTO #spn3 EXEC SPN.dbo.usp_KMS_Employee_GetForSync;
@@ -77,12 +77,12 @@ DROP TABLE #spn3;
 
 DECLARE @RunId3 BIGINT;
 EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E-Baja', @SyncRunId = @RunId3 OUTPUT;
-SELECT EmployeeCode, FullName, IsActive FROM org.Employee WHERE EmployeeCode = N'AL-0110';
+SELECT EmployeeCode, FullName, IsActive FROM org.Employee WHERE EmployeeCode = N'DR0110';
 SELECT u.UserName, u.IsActive AS UsuarioActivo FROM sec.[User] u
-JOIN org.Employee e ON e.EmployeeId = u.EmployeeId WHERE e.EmployeeCode = N'AL-0110';
+JOIN org.Employee e ON e.EmployeeId = u.EmployeeId WHERE e.EmployeeCode = N'DR0110';
 
-PRINT '--- [8] Reingreso: AL-0110 vuelve a A (historia intacta) ---';
-UPDATE SPN.dbo.Empleados SET Estatus = N'A' WHERE Numero = N'AL-0110';
+PRINT '--- [8] Reingreso: DR0110 vuelve a A (historia intacta) ---';
+UPDATE SPN.dbo.Empleados SET Estatus = N'A' WHERE codigo = N'DR0110';
 
 CREATE TABLE #spn4 (EmployeesJson NVARCHAR(MAX));
 INSERT INTO #spn4 EXEC SPN.dbo.usp_KMS_Employee_GetForSync;
@@ -91,5 +91,5 @@ DROP TABLE #spn4;
 
 DECLARE @RunId4 BIGINT;
 EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E-Reingreso', @SyncRunId = @RunId4 OUTPUT;
-SELECT EmployeeCode, FullName, IsActive FROM org.Employee WHERE EmployeeCode = N'AL-0110';
+SELECT EmployeeCode, FullName, IsActive FROM org.Employee WHERE EmployeeCode = N'DR0110';
 GO
