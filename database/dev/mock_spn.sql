@@ -22,6 +22,7 @@ CREATE TABLE dbo.Empleado (
     , FechaIngreso    DATE          NULL
     , FechaSalida     DATE          NULL
     , Estatus         NVARCHAR(50)  NOT NULL DEFAULT N'ACTIVO'
+    , FechaModificacion DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
 IF NOT EXISTS (SELECT 1 FROM dbo.Empleado)
