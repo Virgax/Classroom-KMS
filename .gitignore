@@ -1,0 +1,59 @@
+# ── Secretos ────────────────────────────────────────────────────────────
+# Ningun archivo de este repo debe contener la contrasena de la base.
+# Las credenciales viven en Key Vault / variables de entorno.
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+appsettings.*.json
+!appsettings.Example.json
+secrets.json
+**/publish-profiles/*.pubxml.user
+
+# ── .NET ────────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+*.dbmdl
+*.jfm
+TestResults/
+[Dd]ebug/
+[Rr]elease/
+
+# ── Node / frontend ─────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── SQL ─────────────────────────────────────────────────────────────────
+*.dacpac
+*.bacpac
+*.bak
+*.trn
+*.mdf
+*.ldf
+database/output/
+database/**/*.local.sql
+
+# ── Herramientas ────────────────────────────────────────────────────────
+.vs/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Salidas locales ─────────────────────────────────────────────────────
+logs/
+*.log
+coverage/
+uploads/

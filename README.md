@@ -45,6 +45,13 @@ tiene su `DEALLOCATE`.
 
 ---
 
+## Arrancar con Claude Code
+
+Ver [`PROMPT.md`](PROMPT.md) — cómo entregarle el repo al agente y el prompt de
+arranque listo para copiar.
+
+---
+
 ## Documentación
 
 | Doc | Contenido |
