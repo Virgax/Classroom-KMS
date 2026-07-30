@@ -63,29 +63,41 @@ BEGIN
     SELECT (
         SELECT
         /* ======================= >>> AJUSTAR <<< =============================
-           Mapear aqui las columnas REALES de SPN. Los alias (lado derecho)
-           NO se tocan: son el contrato con el KMS.
-           Tabla(s) origen: reemplazar dbo.Empleado por la tabla/vista real.
+           Mapeo REAL de SPN (confirmado):
+             - dbo.Empleados     : Numero, Nombre, Apellido1, Apellido2,
+                                   Cedula, Estatus ('A' = activo),
+                                   Departamento, Posicion, Supervisor,
+                                   Fecha_Nombramiento
+             - dbo.Departamento  : Codigo -> Descripcion
+             - dbo.Posiciones    : Codigo -> Descripcion
+           Los alias (lado derecho) NO se tocan: son el contrato con el KMS.
            ==================================================================== */
-              e.Codigo            AS employeeCode      -- codigo de empleado (clave natural)
-            , e.Nombre            AS firstName
-            , e.Apellidos         AS lastName
-            , CAST(NULL AS NVARCHAR(200)) AS fullName  -- solo si SPN no separa nombre/apellido
-            , e.Cedula            AS nationalId        -- se enmascara en el KMS (****1234)
-            , e.Correo            AS email
-            , e.Puesto            AS positionTitle
-            , e.Departamento      AS department
-            , e.Sede              AS site
-            , e.CodigoSupervisor  AS supervisorCode
-            , e.FechaIngreso      AS hireDate
-            , e.FechaSalida       AS terminationDate
-            , e.Estatus           AS employmentStatus  -- 'ACTIVO','INACTIVO','TERMINADO','BAJA'...
-        FROM dbo.Empleado e
-        WHERE (@ModifiedSince IS NULL OR e.FechaModificacion >= @ModifiedSince)
-        /* Si SPN no tiene columna de fecha de modificacion, dejar solo
-           full sync: quitar el filtro y correr el job siempre en modo full
-           (RunMode = 2). El hash por fila del KMS hace que el costo de un
-           full diario sea bajo. */
+              CAST(e.Numero AS NVARCHAR(30)) AS employeeCode   -- clave natural; sera el usuario de login
+            , e.Nombre                       AS firstName
+            , LTRIM(RTRIM(CONCAT(e.Apellido1, N' ', ISNULL(e.Apellido2, N'')))) AS lastName
+            , e.Cedula                       AS nationalId     -- se enmascara en el KMS; ultimos 4 = PIN inicial
+            , e.Correo                       AS email           -- quitar esta linea si Empleados no tiene correo
+            , p.Descripcion                  AS positionTitle
+            , d.Descripcion                  AS department
+            /* SPN no tiene columna de sede y la operacion es planta unica:
+               se fija la sede del KMS. Debe coincidir con org.Site.[Name]
+               o SiteCode. Ajustar si algun dia hay mas de una planta. */
+            , N'Santo Domingo'               AS site
+            , sup.NumeroTexto                AS supervisorCode
+            , e.Fecha_Nombramiento           AS hireDate
+            /* Estatus: 'A' = activo. CUALQUIER otro valor entra como
+               INACTIVO: el KMS lo desactiva y no puede iniciar sesion.
+               Se incluyen los no-activos a proposito: asi la baja es
+               explicita en cada corrida, no por ausencia. */
+            , CASE WHEN e.Estatus = N'A' THEN N'ACTIVO' ELSE N'INACTIVO' END AS employmentStatus
+        FROM dbo.Empleados e
+        LEFT JOIN dbo.Departamento d ON d.Codigo = e.Departamento
+        LEFT JOIN dbo.Posiciones   p ON p.Codigo = e.Posicion
+        OUTER APPLY (SELECT CAST(s.Numero AS NVARCHAR(30)) AS NumeroTexto
+                     FROM dbo.Empleados s WHERE s.Numero = e.Supervisor) sup
+        /* SPN no expone fecha de modificacion: el sync corre siempre en
+           modo FULL (RunMode = 2). El hash por fila del KMS hace que el
+           costo del full diario sea bajo. @ModifiedSince queda ignorado. */
         /* ======================= fin AJUSTAR ================================ */
         FOR JSON PATH
     ) AS EmployeesJson;

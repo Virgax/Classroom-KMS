@@ -1,6 +1,8 @@
 /* =====================================================================
    Prueba E2E: sincronizacion de empleados SPN -> AIRLINK_KMS
-   Simula el patron linked-server: misma instancia, cross-database.
+   Consume el procedure REAL de lectura (dbo.usp_KMS_Employee_GetForSync,
+   creado por database/remote/spn_setup.sql) — el mismo contrato que en
+   el servidor de produccion. Cross-db local = patron linked-server.
    ===================================================================== */
 USE AIRLINK_KMS;
 GO
@@ -19,30 +21,20 @@ IF NOT EXISTS (SELECT 1 FROM org.Site WHERE SiteCode = N'SDQ')
 
 DECLARE @SiteId INT = (SELECT SiteId FROM org.Site WHERE SiteCode = N'SDQ');
 
+/* Departamentos: mismos nombres que dbo.Departamento[Descripcion] en SPN,
+   para que el sync los resuelva por nombre. */
 INSERT INTO org.Department (SiteId, DepartmentCode, [Name])
 SELECT @SiteId, d.Code, d.Nombre
 FROM (VALUES (N'PROD', N'Produccion'), (N'CAL', N'Calidad')
            , (N'OPS', N'Operaciones'), (N'RRHH', N'Recursos Humanos')) d (Code, Nombre)
 WHERE NOT EXISTS (SELECT 1 FROM org.Department x WHERE x.[Name] = d.Nombre);
 
-PRINT '--- [1] Full sync desde SPN ---';
-
-/* --- 1. Leer SPN (cross-db = linked server local) y correr el sync --- */
-DECLARE @Json NVARCHAR(MAX) = (
-    SELECT  e.Codigo          AS employeeCode
-          , e.Nombre          AS firstName
-          , e.Apellidos       AS lastName
-          , e.Cedula          AS nationalId
-          , e.Correo          AS email
-          , e.Puesto          AS positionTitle
-          , e.Departamento    AS department
-          , e.Sede            AS site
-          , e.CodigoSupervisor AS supervisorCode
-          , e.FechaIngreso    AS hireDate
-          , e.FechaSalida     AS terminationDate
-          , e.Estatus         AS employmentStatus
-    FROM SPN.dbo.Empleado e
-    FOR JSON PATH);
+PRINT '--- [1] Full sync usando el procedure REAL de SPN ---';
+DECLARE @Json NVARCHAR(MAX);
+CREATE TABLE #spn (EmployeesJson NVARCHAR(MAX));
+INSERT INTO #spn EXEC SPN.dbo.usp_KMS_Employee_GetForSync;
+SELECT @Json = EmployeesJson FROM #spn;
+DROP TABLE #spn;
 
 DECLARE @RunId BIGINT;
 EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E', @SyncRunId = @RunId OUTPUT;
@@ -51,38 +43,53 @@ PRINT '--- [2] Resultado de la corrida ---';
 SELECT SyncRunId, RunMode, [Status], RowsRead, RowsInserted, RowsUpdated, RowsSkipped, RowsErrored, DurationMs
 FROM intg.SyncRun WHERE SyncRunId = @RunId;
 
-PRINT '--- [3] Empleados en el KMS (sync desde nomina) ---';
+PRINT '--- [3] Empleados en el KMS (AL-0112 debe quedar INACTIVO) ---';
 SELECT EmployeeCode, FirstName, LastName, NationalIdMasked, IsActive
      , (SELECT [Name] FROM org.Department d WHERE d.DepartmentId = e.DepartmentId) AS Departamento
 FROM org.Employee e ORDER BY EmployeeCode;
 
-PRINT '--- [4] Posiciones auto-creadas desde SPN (RequiresReview=1) ---';
+PRINT '--- [4] Posiciones desde dbo.Posiciones[Descripcion] ---';
 SELECT PositionCode, [Name], RequiresReview FROM org.[Position] WHERE IsMappedFromSource = 1 ORDER BY PositionCode;
 
-PRINT '--- [5] Errores de integracion abiertos ---';
-SELECT SourceKey, ErrorCode, ErrorMessage FROM intg.IntegrationError WHERE IsResolved = 0;
+PRINT '--- [5] Jerarquia de supervisores resuelta ---';
+SELECT e.EmployeeCode, e.FullName, sup.EmployeeCode AS SupervisorCode
+FROM org.Employee e
+LEFT JOIN org.Employee sup ON sup.EmployeeId = e.SupervisorEmployeeId
+WHERE e.IsActive = 1 ORDER BY e.EmployeeCode;
 
-PRINT '--- [6] Segunda corrida identica: todo debe saltarse (hash) ---';
+PRINT '--- [6] Re-corrida identica: todo debe saltarse (hash) ---';
+CREATE TABLE #spn2 (EmployeesJson NVARCHAR(MAX));
+INSERT INTO #spn2 EXEC SPN.dbo.usp_KMS_Employee_GetForSync;
+SELECT @Json = EmployeesJson FROM #spn2;
+DROP TABLE #spn2;
+
 DECLARE @RunId2 BIGINT;
 EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E-Rerun', @SyncRunId = @RunId2 OUTPUT;
 SELECT SyncRunId, RowsRead, RowsInserted, RowsUpdated, RowsSkipped FROM intg.SyncRun WHERE SyncRunId = @RunId2;
 
-PRINT '--- [7] Baja en SPN: AL-0112 sale de la empresa ---';
-UPDATE SPN.dbo.Empleado SET Estatus = N'TERMINADO', FechaSalida = CAST(GETDATE() AS DATE) WHERE Codigo = N'AL-0112';
+PRINT '--- [7] Baja en SPN: AL-0110 pasa a Estatus T (no puede entrar) ---';
+UPDATE SPN.dbo.Empleados SET Estatus = N'T' WHERE Numero = N'AL-0110';
 
-DECLARE @Json3 NVARCHAR(MAX) = (
-    SELECT  e.Codigo AS employeeCode, e.Nombre AS firstName, e.Apellidos AS lastName
-          , e.Cedula AS nationalId, e.Correo AS email, e.Puesto AS positionTitle
-          , e.Departamento AS department, e.Sede AS site, e.CodigoSupervisor AS supervisorCode
-          , e.FechaIngreso AS hireDate, e.FechaSalida AS terminationDate, e.Estatus AS employmentStatus
-    FROM SPN.dbo.Empleado e FOR JSON PATH);
+CREATE TABLE #spn3 (EmployeesJson NVARCHAR(MAX));
+INSERT INTO #spn3 EXEC SPN.dbo.usp_KMS_Employee_GetForSync;
+SELECT @Json = EmployeesJson FROM #spn3;
+DROP TABLE #spn3;
 
 DECLARE @RunId3 BIGINT;
-EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json3, @TriggeredBy = N'TestE2E-Baja', @SyncRunId = @RunId3 OUTPUT;
+EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E-Baja', @SyncRunId = @RunId3 OUTPUT;
+SELECT EmployeeCode, FullName, IsActive FROM org.Employee WHERE EmployeeCode = N'AL-0110';
+SELECT u.UserName, u.IsActive AS UsuarioActivo FROM sec.[User] u
+JOIN org.Employee e ON e.EmployeeId = u.EmployeeId WHERE e.EmployeeCode = N'AL-0110';
 
-SELECT EmployeeCode, FirstName, LastName, IsActive, TerminationDateUtc
-FROM org.Employee WHERE EmployeeCode = N'AL-0112';
+PRINT '--- [8] Reingreso: AL-0110 vuelve a A (historia intacta) ---';
+UPDATE SPN.dbo.Empleados SET Estatus = N'A' WHERE Numero = N'AL-0110';
 
-PRINT '--- [8] Bitacora de eventos del sync ---';
-SELECT TOP (5) [Action], Severity, [Description], OccurredAtUtc FROM aud.EventLog ORDER BY EventLogId DESC;
+CREATE TABLE #spn4 (EmployeesJson NVARCHAR(MAX));
+INSERT INTO #spn4 EXEC SPN.dbo.usp_KMS_Employee_GetForSync;
+SELECT @Json = EmployeesJson FROM #spn4;
+DROP TABLE #spn4;
+
+DECLARE @RunId4 BIGINT;
+EXEC intg.usp_EmployeeSync_Run @RunMode = 2, @EmployeesJson = @Json, @TriggeredBy = N'TestE2E-Reingreso', @SyncRunId = @RunId4 OUTPUT;
+SELECT EmployeeCode, FullName, IsActive FROM org.Employee WHERE EmployeeCode = N'AL-0110';
 GO

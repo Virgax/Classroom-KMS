@@ -367,6 +367,14 @@ BEGIN
         JOIN @Changes c ON c.EmployeeId = u.EmployeeId
         WHERE c.IsActive = 0 AND u.IsActive = 1;
 
+        /* Reingreso: el empleado vuelve activo -> su usuario tambien.
+           Su historial y certificaciones no vencidas siguen validas. */
+        UPDATE u
+        SET u.IsActive = 1, u.ModifiedAtUtc = @NowUtc
+        FROM sec.[User] u
+        JOIN @Changes c ON c.EmployeeId = u.EmployeeId
+        WHERE c.IsActive = 1 AND ISNULL(c.WasActive, 1) = 0 AND u.IsActive = 0 AND u.IsDeleted = 0;
+
         SELECT @Deactivated = COUNT(*) FROM @Changes WHERE IsActive = 0 AND ISNULL(WasActive, 1) = 1;
 
         /* Sync full: quien ya no aparece en SPN se desactiva. NUNCA se
