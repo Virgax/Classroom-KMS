@@ -146,14 +146,25 @@ GO
 DENY SELECT, INSERT, UPDATE, DELETE ON DATABASE::[AIRLINK_LMS] TO [db_lms_app];
 GO
 
--- Nadie de la aplicacion altera esquema
-DENY ALTER, CONTROL, CREATE TABLE, CREATE PROCEDURE, CREATE VIEW
+-- Nadie de la aplicacion altera esquema.
+-- OJO: sin CONTROL en la lista. DENY CONTROL implica DENY CONNECT y
+-- bloquea el login por completo (y DENY siempre vence a GRANT).
+DENY ALTER, CREATE TABLE, CREATE PROCEDURE, CREATE VIEW
     ON DATABASE::[AIRLINK_LMS] TO [db_lms_app], [db_lms_sync], [db_lms_report];
 GO
 
--- El rol de reporteria no ve nada fuera de rpt
-DENY SELECT ON DATABASE::[AIRLINK_LMS] TO [db_lms_report];
+-- Limpieza idempotente: instalaciones previas de este script aplicaban
+-- DENY CONTROL (bloqueaba CONNECT) y DENY SELECT a nivel de base para
+-- db_lms_report (anulaba el GRANT sobre rpt, porque DENY gana).
+REVOKE CONTROL ON DATABASE::[AIRLINK_LMS] FROM [db_lms_app];
+REVOKE CONTROL ON DATABASE::[AIRLINK_LMS] FROM [db_lms_sync];
+REVOKE CONTROL ON DATABASE::[AIRLINK_LMS] FROM [db_lms_report];
+REVOKE SELECT  ON DATABASE::[AIRLINK_LMS] FROM [db_lms_report];
 GO
+
+/* El rol de reporteria no ve nada fuera de rpt: eso lo garantiza el
+   default-deny de SQL Server (sin GRANT no hay acceso). El unico GRANT
+   que recibe es SELECT sobre el esquema rpt, en 01_schemas.sql. */
 
 PRINT '';
 PRINT '=== 00_setup_database_roles.sql completado ===';
