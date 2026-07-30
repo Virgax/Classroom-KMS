@@ -64,6 +64,8 @@ BEGIN
 
         SET @IsAuthenticated = 0;
 
+        /* El login de piso es SIEMPRE por codigo de empleado, aunque el
+           UserName sea un UPN (usuarios con Entra ademas del PIN). */
         SELECT  @UserId          = u.UserId
               , @IsActive        = u.IsActive
               , @FailedCount     = c.FailedAttemptCount
@@ -71,8 +73,9 @@ BEGIN
               , @PinExpiresAtUtc = c.ExpiresAtUtc
               , @MustChange      = c.MustChangeOnNextLogin
         FROM sec.[User] u
+        LEFT JOIN org.Employee e ON e.EmployeeId = u.EmployeeId
         LEFT JOIN sec.UserCredential c ON c.UserId = u.UserId
-        WHERE u.UserName = @EmployeeCode
+        WHERE (u.UserName = @EmployeeCode OR e.EmployeeCode = @EmployeeCode)
           AND u.IsDeleted = 0
           AND u.AuthMethod IN (2, 3);
 
@@ -1260,6 +1263,105 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         EXEC aud.usp_Error_Log @ProcedureName = N'org.usp_EmployeeAssignment_Set', @ActorUserId = @ActorUserId;
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* =====================================================================
+   sec.usp_User_ProvisionForEmployees
+
+   Aprovisionamiento masivo: crea el usuario de aplicacion (AuthMethod=2,
+   PIN) para todo empleado activo que no tenga uno. UserName = codigo de
+   empleado. Es la base del login universal de piso: no todo el mundo
+   tiene correo/Entra.
+
+   Devuelve los usuarios que quedaron SIN credencial y su semilla de PIN
+   inicial (ultimos 4 de la cedula, derivados de NationalIdMasked). La
+   API hashea la semilla con PBKDF2 y llama a sec.usp_User_SetPin por
+   usuario: T-SQL nunca hace criptografia de contrasenas.
+
+   Empleados sin cedula en el origen quedan reportados en el segundo
+   resultset: a esos el PIN se les asigna manualmente.
+
+   Errores: 50002 sin permiso
+   ===================================================================== */
+CREATE OR ALTER PROCEDURE sec.usp_User_ProvisionForEmployees
+      @ActorUserId INT
+    , @DefaultLocale NVARCHAR(10) = N'es-DO'
+    , @UsersCreated INT = NULL OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF sec.fn_UserHasPermission(@ActorUserId, N'user.manage') = 0
+            THROW 50002, 'El usuario no tiene permiso para esta operacion.', 1;
+
+        DECLARE @NowUtc DATETIME2(3) = SYSUTCDATETIME();
+        DECLARE @Created TABLE (UserId INT, EmployeeId INT);
+
+        BEGIN TRANSACTION;
+
+        INSERT INTO sec.[User] (EmployeeId, UserName, DisplayName, Email
+                              , AuthMethod, PreferredLocale, IsActive, CreatedByUserId)
+        OUTPUT inserted.UserId, inserted.EmployeeId INTO @Created (UserId, EmployeeId)
+        SELECT  e.EmployeeId, e.EmployeeCode, e.FullName, e.Email
+              , 2 /* Pin */, @DefaultLocale, 1, @ActorUserId
+        FROM org.Employee e
+        WHERE e.IsActive = 1
+          AND NOT EXISTS (SELECT 1 FROM sec.[User] u
+                          WHERE u.EmployeeId = e.EmployeeId AND u.IsDeleted = 0);
+
+        SET @UsersCreated = @@ROWCOUNT;
+
+        /* Rol base LEARNER a los recien creados (sus accesos se resuelven
+           por pertenencia, no por permisos explicitos). */
+        DECLARE @LearnerRoleId INT = (SELECT RoleId FROM sec.Role WHERE RoleCode = N'LEARNER');
+        INSERT INTO sec.UserRoleAssignment (UserId, RoleId, ScopeType, AssignedByUserId)
+        SELECT c.UserId, @LearnerRoleId, 1, @ActorUserId
+        FROM @Created c
+        WHERE @LearnerRoleId IS NOT NULL;
+
+        EXEC aud.usp_Event_Log
+              @EventType   = N'User.BulkProvisioned'
+            , @EntityType  = N'User'
+            , @ActorUserId = @ActorUserId
+            , @Severity    = 3
+            , @Summary     = N'Aprovisionamiento masivo de usuarios de piso.';
+
+        COMMIT TRANSACTION;
+
+        /* Resultset 1: usuarios pendientes de credencial + semilla de PIN
+           (ultimos 4 de la cedula). Incluye usuarios de corridas
+           anteriores que quedaron sin PIN. */
+        SELECT  u.UserId
+              , u.UserName AS EmployeeCode
+              , u.DisplayName
+              , RIGHT(e.NationalIdMasked, 4) AS PinSeed
+        FROM sec.[User] u
+        JOIN org.Employee e ON e.EmployeeId = u.EmployeeId
+        WHERE u.IsActive = 1 AND u.IsDeleted = 0
+          AND u.AuthMethod IN (2, 3)
+          AND e.NationalIdMasked IS NOT NULL
+          AND LEN(e.NationalIdMasked) >= 4
+          AND NOT EXISTS (SELECT 1 FROM sec.UserCredential c WHERE c.UserId = u.UserId);
+
+        /* Resultset 2: sin cedula en el origen -> PIN manual */
+        SELECT  u.UserId, u.UserName AS EmployeeCode, u.DisplayName
+        FROM sec.[User] u
+        JOIN org.Employee e ON e.EmployeeId = u.EmployeeId
+        WHERE u.IsActive = 1 AND u.IsDeleted = 0
+          AND u.AuthMethod IN (2, 3)
+          AND (e.NationalIdMasked IS NULL OR LEN(e.NationalIdMasked) < 4)
+          AND NOT EXISTS (SELECT 1 FROM sec.UserCredential c WHERE c.UserId = u.UserId);
+
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        EXEC aud.usp_Error_Log @ProcedureName = N'sec.usp_User_ProvisionForEmployees', @ActorUserId = @ActorUserId;
         THROW;
     END CATCH;
 END;
