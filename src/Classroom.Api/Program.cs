@@ -21,7 +21,14 @@ builder.Services.AddSingleton<IDbConnectionFactory>(new SqlConnectionFactory(con
 builder.Services.AddSingleton<EmployeeRepository>();
 builder.Services.AddSingleton<HealthRepository>();
 builder.Services.AddSingleton<AuthRepository>();
+builder.Services.AddSingleton<TrainingRecordRepository>();
 builder.Services.AddSingleton<JwtTokenService>();
+
+// CORS: el frontend (Vite) corre en otro puerto en desarrollo.
+var corsOrigins = (builder.Configuration["KMS_CORS_ORIGINS"] ?? "http://localhost:5173")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod()));
 
 /* =====================================================================
    Autenticacion universal: codigo de empleado + PIN -> JWT propio.
@@ -51,6 +58,7 @@ if (devAuth)
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -168,6 +176,26 @@ app.MapPost("/api/admin/users/provision", async (
         }
 
         return Results.Ok(new { usersCreated = created, credentialsSet, manualPinNeeded = manual });
+    }
+    catch (SqlException ex) when (ex.Number == 50002)
+    {
+        return Results.Forbid();
+    }
+}).RequireAuthorization();
+
+/* ---------------------------------------------------------------------
+   GET /api/me/record — Mi expediente de entrenamiento.
+   El SP autoriza: uno mismo siempre; otros exigen report.trainingrecord.
+   --------------------------------------------------------------------- */
+app.MapGet("/api/me/record", async (
+    ClaimsPrincipal user, TrainingRecordRepository repo, CancellationToken ct) =>
+{
+    try
+    {
+        var record = await repo.TrainingRecord_GetForEmployee(ActorUserId(user), null, ct);
+        return record.Employee is null
+            ? Results.NotFound(new { error = "El usuario no tiene expediente de empleado." })
+            : Results.Ok(record);
     }
     catch (SqlException ex) when (ex.Number == 50002)
     {

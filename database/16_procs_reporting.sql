@@ -144,6 +144,10 @@ BEGIN
     SET NOCOUNT ON;
 
     BEGIN TRY
+        /* Sin empleado explicito, el expediente es el del propio actor. */
+        IF @EmployeeId IS NULL AND @EmployeeCode IS NULL
+            SELECT @EmployeeId = EmployeeId FROM sec.[User] WHERE UserId = @ActorUserId;
+
         SELECT @EmployeeId = COALESCE(@EmployeeId, e.EmployeeId)
         FROM org.Employee e WHERE @EmployeeCode IS NOT NULL AND e.EmployeeCode = @EmployeeCode;
 
