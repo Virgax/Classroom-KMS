@@ -4,10 +4,10 @@ Scripts para dejar **SPN** y **AIRLINK** listos como fuentes de solo lectura
 del KMS. Se corren **una vez** en la instancia real, como sysadmin, en este
 orden:
 
-> **Principal de lectura:** por defecto los scripts otorgan `EXECUTE` a
-> **`AlAppUser`** (el usuario read-only existente). Está parametrizado con
-> `:setvar SyncPrincipal` — para usar otro principal:
-> `sqlcmd ... -v SyncPrincipal=AlLmsSyncUser -i spn_setup.sql`.
+> **Principal de lectura:** los scripts otorgan `EXECUTE` a **`AlAppUser`**
+> (el usuario read-only existente). Son **T-SQL puro** — corren en cualquier
+> cliente (SSMS, DataGrip, sqlcmd) sin modo SQLCMD. Para usar otro
+> principal, buscar/reemplazar `AlAppUser` en el archivo.
 > **Antes de darle este acceso a AlAppUser, rotar su contraseña** (fue
 > expuesta en texto claro — ver nota en `00_setup_database_roles.sql`).
 > AlAppUser solo lee SPN/AIRLINK; el usuario de aplicación del KMS sobre

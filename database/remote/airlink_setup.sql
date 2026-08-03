@@ -4,10 +4,9 @@
    Correr EN la base AIRLINK del servidor 192.168.181.248,13999 como sysadmin
    (o un usuario con permiso de CREATE PROCEDURE en AIRLINK).
 
-   Requiere sqlcmd (CLI o SSMS en modo SQLCMD). El principal que ejecutara
-   la lectura es parametrizable; default: AlAppUser (el usuario read-only
-   existente). Para cambiarlo sin editar el script:
-       sqlcmd ... -v SyncPrincipal=AlLmsSyncUser -i airlink_setup.sql
+   T-SQL puro: corre en cualquier cliente (SSMS, DataGrip, sqlcmd).
+   El principal de lectura es AlAppUser (el usuario read-only existente).
+   Para usar otro, buscar/reemplazar AlAppUser en este archivo.
 
    Que hace:
      1. Verifica que el principal exista (no crea logins).
@@ -26,8 +25,6 @@
 
    Idempotente. Re-ejecutable.
    ============================================================================= */
-:setvar SyncPrincipal AlAppUser
-
 USE AIRLINK;
 GO
 SET NOCOUNT ON;
@@ -36,11 +33,11 @@ GO
 /* -----------------------------------------------------------------------------
    1. Verificar el principal
    -------------------------------------------------------------------------- */
-IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'$(SyncPrincipal)')
-    THROW 50000, 'El login $(SyncPrincipal) no existe en la instancia.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'AlAppUser')
+    THROW 50000, 'El login AlAppUser no existe en la instancia.', 1;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$(SyncPrincipal)')
-    CREATE USER [$(SyncPrincipal)] FOR LOGIN [$(SyncPrincipal)];
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'AlAppUser')
+    CREATE USER [AlAppUser] FOR LOGIN [AlAppUser];
 GO
 
 /* -----------------------------------------------------------------------------
@@ -141,16 +138,16 @@ GO
    sobre AIRLINK; este script no lo amplia ni lo reduce. El contrato
    oficial del KMS son los procedures, no las tablas.)
    -------------------------------------------------------------------------- */
-GRANT EXECUTE ON dbo.usp_KMS_Station_GetForSync               TO [$(SyncPrincipal)];
-GRANT EXECUTE ON dbo.usp_KMS_ProductionHistory_GetForEmployee TO [$(SyncPrincipal)];
-GRANT EXECUTE ON dbo.usp_KMS_OperatorQuality_GetSummary       TO [$(SyncPrincipal)];
+GRANT EXECUTE ON dbo.usp_KMS_Station_GetForSync               TO [AlAppUser];
+GRANT EXECUTE ON dbo.usp_KMS_ProductionHistory_GetForEmployee TO [AlAppUser];
+GRANT EXECUTE ON dbo.usp_KMS_OperatorQuality_GetSummary       TO [AlAppUser];
 GO
 
 /* -----------------------------------------------------------------------------
    4. Verificacion con la identidad real
    -------------------------------------------------------------------------- */
-PRINT 'Verificando como $(SyncPrincipal)...';
-EXECUTE AS USER = N'$(SyncPrincipal)';
+PRINT 'Verificando como AlAppUser...';
+EXECUTE AS USER = N'AlAppUser';
 BEGIN TRY
     EXEC dbo.usp_KMS_Station_GetForSync;
     PRINT 'OK: catalogo de estaciones legible via procedure.';
@@ -162,5 +159,5 @@ REVERT;
 GO
 
 PRINT '';
-PRINT '=== AIRLINK listo para el KMS (principal: $(SyncPrincipal)) ===';
+PRINT '=== AIRLINK listo para el KMS (principal: AlAppUser) ===';
 GO
