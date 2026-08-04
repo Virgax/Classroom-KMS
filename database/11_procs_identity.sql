@@ -8,7 +8,7 @@
    Codigos de error de este archivo: 50001-50199
    ===================================================================== */
 
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
@@ -1362,6 +1362,94 @@ BEGIN
     BEGIN CATCH
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
         EXEC aud.usp_Error_Log @ProcedureName = N'sec.usp_User_ProvisionForEmployees', @ActorUserId = @ActorUserId;
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* =====================================================================
+   org.usp_EmployeePhoto_Upsert
+
+   Guarda o actualiza la foto del empleado (llega del hub de SPN via el
+   login de Power Automate). Si la foto es identica (hash) no escribe:
+   el login corre muchas veces al dia.
+
+   Errores: 50002 sin permiso, 50110 empleado no existe
+   ===================================================================== */
+CREATE OR ALTER PROCEDURE org.usp_EmployeePhoto_Upsert
+      @ActorUserId INT
+    , @EmployeeId  INT
+    , @PhotoBytes  VARBINARY(MAX)
+    , @ContentType NVARCHAR(60) = N'image/jpeg'
+    , @Source      NVARCHAR(30) = N'SPN_HUB'
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        /* El propio empleado (su login refresca su foto) o quien maneja usuarios. */
+        IF NOT EXISTS (SELECT 1 FROM sec.[User] WHERE UserId = @ActorUserId AND EmployeeId = @EmployeeId)
+           AND sec.fn_UserHasPermission(@ActorUserId, N'user.manage') = 0
+            THROW 50002, 'El usuario no tiene permiso para esta operacion.', 1;
+
+        IF NOT EXISTS (SELECT 1 FROM org.Employee WHERE EmployeeId = @EmployeeId)
+            THROW 50110, 'El empleado no existe.', 1;
+
+        IF @PhotoBytes IS NULL OR DATALENGTH(@PhotoBytes) = 0
+            THROW 50010, 'PhotoBytes es requerido.', 1;
+
+        /* Sin cambios -> sin escritura. */
+        IF EXISTS (SELECT 1 FROM org.EmployeePhoto
+                   WHERE EmployeeId = @EmployeeId
+                     AND PhotoHash = CAST(HASHBYTES('SHA2_256', @PhotoBytes) AS VARBINARY(32)))
+            RETURN 0;
+
+        MERGE org.EmployeePhoto AS tgt
+        USING (SELECT @EmployeeId AS EmployeeId) AS src ON tgt.EmployeeId = src.EmployeeId
+        WHEN MATCHED THEN UPDATE SET
+              PhotoBytes = @PhotoBytes, ContentType = @ContentType
+            , [Source] = @Source, UpdatedAtUtc = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN INSERT (EmployeeId, PhotoBytes, ContentType, [Source])
+            VALUES (@EmployeeId, @PhotoBytes, @ContentType, @Source);
+
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        EXEC aud.usp_Error_Log @ProcedureName = N'org.usp_EmployeePhoto_Upsert', @ActorUserId = @ActorUserId;
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* =====================================================================
+   org.usp_EmployeePhoto_Get
+   Sin @EmployeeId devuelve la foto del propio actor. Ver la de otro
+   exige employee.read.all.
+   ===================================================================== */
+CREATE OR ALTER PROCEDURE org.usp_EmployeePhoto_Get
+      @ActorUserId INT
+    , @EmployeeId  INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        IF @EmployeeId IS NULL
+            SELECT @EmployeeId = EmployeeId FROM sec.[User] WHERE UserId = @ActorUserId;
+
+        IF NOT EXISTS (SELECT 1 FROM sec.[User] WHERE UserId = @ActorUserId AND EmployeeId = @EmployeeId)
+           AND sec.fn_UserHasPermission(@ActorUserId, N'employee.read.all') = 0
+            THROW 50002, 'El usuario no tiene permiso para esta operacion.', 1;
+
+        SELECT ContentType, PhotoBytes, UpdatedAtUtc
+        FROM org.EmployeePhoto
+        WHERE EmployeeId = @EmployeeId;
+
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        EXEC aud.usp_Error_Log @ProcedureName = N'org.usp_EmployeePhoto_Get', @ActorUserId = @ActorUserId;
         THROW;
     END CATCH;
 END;

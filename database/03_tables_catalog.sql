@@ -2,7 +2,7 @@
    Classroom LMS by Airlink
    03_tables_catalog.sql  -  lms: cursos, versiones, programas, categorias
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

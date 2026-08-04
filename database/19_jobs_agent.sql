@@ -20,7 +20,7 @@
    Si se invierte, el calculo de la noche trabaja con la foto de ayer.
 
    Requisitos: SQL Server Agent activo, Database Mail configurado para
-   el operador, y el owner de los jobs debe poder ejecutar en AIRLINK_LMS.
+   el operador, y el owner de los jobs debe poder ejecutar en AIRLINK_KMS.
    ===================================================================== */
 
 USE msdb;
@@ -32,7 +32,7 @@ GO
 /* ---------------------------------------------------------------------
    Parametros de despliegue. Ajustar antes de correr en cada entorno.
    --------------------------------------------------------------------- */
-DECLARE @DatabaseName SYSNAME       = N'AIRLINK_LMS';
+DECLARE @DatabaseName SYSNAME       = N'AIRLINK_KMS';
 DECLARE @JobOwner     SYSNAME       = N'sa';                    -- cambiar por cuenta de servicio
 DECLARE @Category     SYSNAME       = N'Classroom LMS';
 DECLARE @OperatorName SYSNAME       = N'Airlink IT';            -- debe existir en msdb
@@ -70,7 +70,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Employee Sync (Incremental)'
     , @step_name = N'Run incremental sync'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @retry_attempts = 2
     , @retry_interval = 5
     , @command = N'
@@ -125,7 +125,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Employee Sync (Full)'
     , @step_name = N'Run full sync'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @retry_attempts = 1
     , @retry_interval = 10
     , @command = N'
@@ -175,7 +175,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Gap Recalculation'
     , @step_name = N'Recalculate all gaps'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @command = N'
 DECLARE @JobRunId BIGINT, @Processed INT = 0;
 EXEC ops.usp_JobRun_Start @JobName = N''Gap.RecalculateAll'', @JobRunId = @JobRunId OUTPUT;
@@ -229,7 +229,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Certification Status Refresh'
     , @step_name = N'Refresh certification statuses'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @command = N'
 DECLARE @JobRunId BIGINT;
 EXEC ops.usp_JobRun_Start @JobName = N''Certification.RefreshStatuses'', @JobRunId = @JobRunId OUTPUT;
@@ -274,7 +274,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Enrollment Expiration'
     , @step_name = N'Expire overdue enrollments'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @on_success_action = 3          -- pasa al siguiente paso
     , @command = N'
 DECLARE @JobRunId BIGINT;
@@ -293,7 +293,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Enrollment Expiration'
     , @step_name = N'Abandon stale quiz attempts'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @command = N'
 DECLARE @JobRunId BIGINT;
 EXEC ops.usp_JobRun_Start @JobName = N''Assessment.AbandonExpired'', @JobRunId = @JobRunId OUTPUT;
@@ -338,7 +338,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Notification Digest'
     , @step_name = N'Queue health check'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @command = N'
 DECLARE @JobRunId BIGINT, @Pending INT, @Dead INT;
 EXEC ops.usp_JobRun_Start @JobName = N''Notification.Digest'', @JobRunId = @JobRunId OUTPUT;
@@ -398,7 +398,7 @@ EXEC msdb.dbo.sp_add_jobstep
       @job_name = N'LMS - Retention Policy'
     , @step_name = N'Apply retention'
     , @subsystem = N'TSQL'
-    , @database_name = N'AIRLINK_LMS'
+    , @database_name = N'AIRLINK_KMS'
     , @command = N'
 DECLARE @JobRunId BIGINT;
 EXEC ops.usp_JobRun_Start @JobName = N''Retention.Apply'', @JobRunId = @JobRunId OUTPUT;

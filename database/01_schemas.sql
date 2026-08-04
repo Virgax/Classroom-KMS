@@ -4,7 +4,7 @@
    Idempotente.
    ============================================================================= */
 
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

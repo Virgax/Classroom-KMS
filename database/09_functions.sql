@@ -2,7 +2,7 @@
    Classroom LMS by Airlink
    09_functions.sql  -  Funciones escalares y con valores de tabla
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

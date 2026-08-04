@@ -3,7 +3,7 @@
    05_tables_assessment.sql  -  asmt: bancos, preguntas, quizzes, intentos,
                                 rubricas, evaluacion practica (OJT)
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

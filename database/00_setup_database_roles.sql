@@ -24,9 +24,9 @@ GO
 /* -----------------------------------------------------------------------------
    1. Base de datos
    ADR-001: base de datos propia. NO se crean tablas del LMS dentro de AIRLINK.
-   Cambiar el nombre por AIRLINK_LMS_DEV / _QA segun el entorno.
+   Cambiar el nombre por AIRLINK_KMS_DEV / _QA segun el entorno.
    -------------------------------------------------------------------------- */
-DECLARE @DbName SYSNAME = N'AIRLINK_LMS';
+DECLARE @DbName SYSNAME = N'AIRLINK_KMS';
 
 IF DB_ID(@DbName) IS NULL
 BEGIN
@@ -38,7 +38,7 @@ ELSE
     PRINT 'Base de datos ya existe: ' + @DbName;
 GO
 
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 
 /* Configuracion de base de datos */
@@ -74,7 +74,7 @@ BEGIN
         WITH PASSWORD     = N'<<REEMPLAZAR-DESDE-KEY-VAULT-APP>>'
            , CHECK_POLICY  = ON
            , CHECK_EXPIRATION = OFF
-           , DEFAULT_DATABASE = [AIRLINK_LMS];
+           , DEFAULT_DATABASE = [AIRLINK_KMS];
     PRINT 'Login creado: AlLmsAppUser';
 END
 GO
@@ -86,7 +86,7 @@ BEGIN
         WITH PASSWORD     = N'<<REEMPLAZAR-DESDE-KEY-VAULT-SYNC>>'
            , CHECK_POLICY  = ON
            , CHECK_EXPIRATION = OFF
-           , DEFAULT_DATABASE = [AIRLINK_LMS];
+           , DEFAULT_DATABASE = [AIRLINK_KMS];
     PRINT 'Login creado: AlLmsSyncUser';
 END
 GO
@@ -98,15 +98,15 @@ BEGIN
         WITH PASSWORD     = N'<<REEMPLAZAR-DESDE-KEY-VAULT-REPORT>>'
            , CHECK_POLICY  = ON
            , CHECK_EXPIRATION = OFF
-           , DEFAULT_DATABASE = [AIRLINK_LMS];
+           , DEFAULT_DATABASE = [AIRLINK_KMS];
     PRINT 'Login creado: AlLmsReportUser';
 END
 GO
 
 /* -----------------------------------------------------------------------------
-   3. Usuarios y roles en AIRLINK_LMS
+   3. Usuarios y roles en AIRLINK_KMS
    -------------------------------------------------------------------------- */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'AlLmsAppUser')
@@ -143,23 +143,23 @@ GO
 -- La aplicacion NO puede leer tablas directamente. Esta es la garantia tecnica
 -- de la regla "todo por stored procedure": no es una convencion de codigo, es
 -- una restriccion de la base de datos que falla en runtime si se viola.
-DENY SELECT, INSERT, UPDATE, DELETE ON DATABASE::[AIRLINK_LMS] TO [db_lms_app];
+DENY SELECT, INSERT, UPDATE, DELETE ON DATABASE::[AIRLINK_KMS] TO [db_lms_app];
 GO
 
 -- Nadie de la aplicacion altera esquema.
 -- OJO: sin CONTROL en la lista. DENY CONTROL implica DENY CONNECT y
 -- bloquea el login por completo (y DENY siempre vence a GRANT).
 DENY ALTER, CREATE TABLE, CREATE PROCEDURE, CREATE VIEW
-    ON DATABASE::[AIRLINK_LMS] TO [db_lms_app], [db_lms_sync], [db_lms_report];
+    ON DATABASE::[AIRLINK_KMS] TO [db_lms_app], [db_lms_sync], [db_lms_report];
 GO
 
 -- Limpieza idempotente: instalaciones previas de este script aplicaban
 -- DENY CONTROL (bloqueaba CONNECT) y DENY SELECT a nivel de base para
 -- db_lms_report (anulaba el GRANT sobre rpt, porque DENY gana).
-REVOKE CONTROL ON DATABASE::[AIRLINK_LMS] FROM [db_lms_app];
-REVOKE CONTROL ON DATABASE::[AIRLINK_LMS] FROM [db_lms_sync];
-REVOKE CONTROL ON DATABASE::[AIRLINK_LMS] FROM [db_lms_report];
-REVOKE SELECT  ON DATABASE::[AIRLINK_LMS] FROM [db_lms_report];
+REVOKE CONTROL ON DATABASE::[AIRLINK_KMS] FROM [db_lms_app];
+REVOKE CONTROL ON DATABASE::[AIRLINK_KMS] FROM [db_lms_sync];
+REVOKE CONTROL ON DATABASE::[AIRLINK_KMS] FROM [db_lms_report];
+REVOKE SELECT  ON DATABASE::[AIRLINK_KMS] FROM [db_lms_report];
 GO
 
 /* El rol de reporteria no ve nada fuera de rpt: eso lo garantiza el

@@ -10,7 +10,7 @@
    Codigos de error de este archivo: 50200-50299
    ===================================================================== */
 
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;

@@ -16,7 +16,7 @@
    en un SP, va aqui tambien o el SP niega el acceso a todo el mundo.
    ===================================================================== */
 
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 SET XACT_ABORT ON;

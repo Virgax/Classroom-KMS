@@ -66,7 +66,7 @@ param(
     [string] $Server,
 
     [Parameter()]
-    [string] $Database = 'AIRLINK_LMS',
+    [string] $Database = 'AIRLINK_KMS',
 
     [Parameter()]
     [System.Management.Automation.PSCredential] $Credential,

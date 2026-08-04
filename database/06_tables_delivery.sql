@@ -2,7 +2,7 @@
    Classroom LMS by Airlink
    06_tables_delivery.sql  -  dlv: inscripciones, progreso, cohortes, ILT
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

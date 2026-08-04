@@ -35,3 +35,24 @@ public sealed record ProvisionResult(
     int UsersCreated,
     int CredentialsSet,
     IReadOnlyList<string> ManualPinNeeded);
+
+/// <summary>sec.usp_User_GetByEmployeeCode.</summary>
+public sealed record UserByEmployeeCode
+{
+    public int UserId { get; init; }
+    public Guid PublicId { get; init; }
+    public int? EmployeeId { get; init; }
+    public string UserName { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public string PreferredLocale { get; init; } = "es-DO";
+    public byte AuthMethod { get; init; }
+    public bool IsActive { get; init; }
+}
+
+/// <summary>org.usp_EmployeePhoto_Get.</summary>
+public sealed record EmployeePhoto
+{
+    public string ContentType { get; init; } = "image/jpeg";
+    public byte[] PhotoBytes { get; init; } = [];
+    public DateTime UpdatedAtUtc { get; init; }
+}

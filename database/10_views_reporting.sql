@@ -6,7 +6,7 @@
    Regla: la reporteria NUNCA consulta tablas OLTP directamente. Todo pasa por
    estas vistas o por los SPs de rpt.
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

@@ -10,7 +10,7 @@
      - ISO 9001:2015 cl.7.2 (Competencia) y cl.7.3 (Toma de conciencia)
      - R2v3 Core Requirements + FA4 (competencia tecnica de trabajadores)
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

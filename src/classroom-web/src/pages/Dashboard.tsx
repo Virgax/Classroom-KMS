@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getMyRecord, getDisplayName, ApiError } from '../lib/api'
+import { getMyRecord, getMyPhoto, getDisplayName, ApiError } from '../lib/api'
 import type { TrainingRecord, Gap, Certification, Enrollment } from '../lib/api'
 
 const SEVERITY = ['', 'Crítica', 'Mayor', 'Menor']
@@ -14,6 +14,7 @@ function fmtDate(iso: string | null): string {
 
 export default function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [record, setRecord] = useState<TrainingRecord | null>(null)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -23,6 +24,9 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         if (e instanceof ApiError && e.status === 401) onLogout()
         else setError(e instanceof ApiError ? e.message : 'No se pudo cargar el expediente.')
       })
+    getMyPhoto()
+      .then((p) => p && setPhotoUrl(`data:${p.contentType};base64,${p.photoB64}`))
+      .catch(() => {})
   }, [onLogout])
 
   if (error)
@@ -47,9 +51,26 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
       {/* Encabezado del empleado */}
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">{employee.fullName}</h2>
-            <p className="text-slate-500 font-mono">{employee.employeeCode}</p>
+          <div className="flex items-center gap-4">
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={employee.fullName}
+                className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-200"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-sky-100 text-sky-700 flex items-center justify-center text-xl font-black">
+                {employee.fullName
+                  .split(' ')
+                  .slice(0, 2)
+                  .map((w) => w[0])
+                  .join('')}
+              </div>
+            )}
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">{employee.fullName}</h2>
+              <p className="text-slate-500 font-mono">{employee.employeeCode}</p>
+            </div>
           </div>
           <div className="text-sm text-slate-600 space-y-1 text-right">
             <p>{employee.positionName ?? 'Sin posición asignada'}</p>

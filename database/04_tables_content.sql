@@ -2,7 +2,7 @@
    Classroom LMS by Airlink
    04_tables_content.sql  -  lms: modulos, items, paginas, traducciones
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO

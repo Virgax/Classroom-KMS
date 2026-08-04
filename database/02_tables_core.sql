@@ -4,7 +4,7 @@
    Idempotente.
    ============================================================================= */
 
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO
@@ -493,4 +493,18 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_EmployeeAssignment_Cu
 GO
 
 PRINT '=== 02_tables_core.sql completado ===';
+GO
+
+/* --- org.EmployeePhoto : foto del empleado (viene del hub de SPN) -------- */
+IF OBJECT_ID(N'org.EmployeePhoto', N'U') IS NULL
+CREATE TABLE org.EmployeePhoto (
+      EmployeeId        INT              NOT NULL
+    , ContentType       NVARCHAR(60)     NOT NULL CONSTRAINT DF_EmployeePhoto_ContentType DEFAULT N'image/jpeg'
+    , PhotoBytes        VARBINARY(MAX)   NOT NULL
+    , PhotoHash         AS CAST(HASHBYTES('SHA2_256', PhotoBytes) AS VARBINARY(32))
+    , [Source]          NVARCHAR(30)     NOT NULL CONSTRAINT DF_EmployeePhoto_Source DEFAULT N'SPN_HUB'
+    , UpdatedAtUtc      DATETIME2(3)     NOT NULL CONSTRAINT DF_EmployeePhoto_UpdatedAtUtc DEFAULT SYSUTCDATETIME()
+    , CONSTRAINT PK_EmployeePhoto PRIMARY KEY CLUSTERED (EmployeeId)
+    , CONSTRAINT FK_EmployeePhoto_Employee FOREIGN KEY (EmployeeId) REFERENCES org.Employee (EmployeeId)
+);
 GO

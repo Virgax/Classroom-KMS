@@ -115,3 +115,18 @@ export interface TrainingRecord {
 export function getMyRecord(): Promise<TrainingRecord> {
   return request<TrainingRecord>('/api/me/record')
 }
+
+export interface EmployeePhoto {
+  contentType: string
+  photoB64: string
+}
+
+/** Foto del empleado autenticado; null si no tiene. */
+export async function getMyPhoto(): Promise<EmployeePhoto | null> {
+  try {
+    return await request<EmployeePhoto>('/api/me/photo')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null
+    throw e
+  }
+}

@@ -83,6 +83,19 @@ public sealed class AuthRepository(IDbConnectionFactory db)
             new CommandDefinition(Sp, p, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
 
+    /// <summary>Usuario por codigo de empleado (login de piso). Null si no existe.</summary>
+    public async Task<UserByEmployeeCode?> User_GetByEmployeeCode(string employeeCode, CancellationToken ct = default)
+    {
+        const string Sp = "sec.usp_User_GetByEmployeeCode";
+
+        var p = new DynamicParameters();
+        p.Add("@EmployeeCode", employeeCode, DbType.String, size: 30);
+
+        using var conn = await db.OpenAsync(ct);
+        return await conn.QuerySingleOrDefaultAsync<UserByEmployeeCode>(
+            new CommandDefinition(Sp, p, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+    }
+
     /// <summary>
     /// Crea usuarios para empleados activos sin cuenta y devuelve los
     /// pendientes de PIN inicial (con semilla) y los que requieren PIN manual.

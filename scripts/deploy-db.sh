@@ -32,7 +32,7 @@ trap 'rm -rf "$STAGE"' EXIT
 cp "$REPO_ROOT"/database/*.sql "$STAGE/"
 
 # Nombre de base y contraseñas solo en la copia staging.
-sed -i "s/AIRLINK_LMS/$DB/g" "$STAGE"/*.sql
+sed -i "s/AIRLINK_KMS/$DB/g" "$STAGE"/*.sql
 if grep -q "REEMPLAZAR-DESDE-KEY-VAULT" "$STAGE"/00_setup_database_roles.sql; then
     : "${KMS_APP_PASSWORD:?Definir KMS_APP_PASSWORD (primer deploy)}"
     : "${KMS_SYNC_PASSWORD:?Definir KMS_SYNC_PASSWORD (primer deploy)}"

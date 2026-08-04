@@ -50,6 +50,8 @@ Funciones: `sec.fn_UserHasPermission(@UserId, @PermissionCode)`,
 | `org.usp_EmployeePosition_End` | W | Cierra vigencia de una posición |
 | `org.usp_EmployeeAssignment_Set` | W | Ubica al empleado (sitio/depto/área/estación/turno); **dispara recálculo de brechas** |
 | `sec.usp_User_ProvisionForEmployees` | W | Aprovisionamiento masivo de usuarios de piso (login = código de empleado); devuelve pendientes de PIN con su semilla |
+| `org.usp_EmployeePhoto_Upsert` | W | Foto del empleado (llega del hub de SPN en el login); no escribe si el hash no cambió |
+| `org.usp_EmployeePhoto_Get` | R | Foto propia, o de otro con `employee.read.all` |
 | `org.usp_Position_Create` / `_Update` / `_List` | W/R | Catálogo de posiciones |
 | `org.usp_Department_List` / `_GetTree` | R | Jerarquía organizacional |
 | `org.usp_Site_List`, `org.usp_Area_List`, `org.usp_Station_List` | R | Catálogos |

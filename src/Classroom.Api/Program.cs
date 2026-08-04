@@ -76,48 +76,126 @@ app.MapGet("/health", async (HealthRepository repo, CancellationToken ct) =>
 
 /* ---------------------------------------------------------------------
    POST /api/auth/login   { employeeCode, pin }
-   PIN inicial = ultimos 4 de la cedula (aprovisionamiento masivo).
+   PIN = ultimos 4 de la cedula.
+
+   Con KMS_PA_LOGIN_URL configurada, la validacion la hace el flow de
+   Power Automate (SP_Hub_ValidateLogin) — que ademas trae la foto del
+   empleado, que se guarda en org.EmployeePhoto. Si el flow esta caido,
+   cae al PIN local (PBKDF2) para que el piso no se detenga.
+   Sin la URL, el PIN local es el unico metodo.
    --------------------------------------------------------------------- */
+var paLoginUrl = builder.Configuration["KMS_PA_LOGIN_URL"];
+var paLogin = string.IsNullOrWhiteSpace(paLoginUrl)
+    ? null
+    : new PowerAutomateLoginClient(new HttpClient { Timeout = TimeSpan.FromSeconds(20) }, paLoginUrl);
+
 app.MapPost("/api/auth/login", async (
-    LoginRequest req, AuthRepository repo, JwtTokenService tokens,
-    HttpContext http, CancellationToken ct) =>
+    LoginRequest req, AuthRepository repo, EmployeeRepository employees,
+    JwtTokenService tokens, HttpContext http, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(req.EmployeeCode) || !IsValidPin(req.Pin))
         return Results.Json(new { error = "Codigo o PIN incorrecto." }, statusCode: 401);
 
+    var code = req.EmployeeCode.Trim().ToUpperInvariant();
     var ip = http.Connection.RemoteIpAddress?.ToString();
     var userAgent = http.Request.Headers.UserAgent.ToString();
 
+    async Task<IResult> LocalPinLogin()
+    {
+        try
+        {
+            var material = await repo.User_AuthenticatePin_GetMaterial(code, null, ip, ct);
+            var isMatch = material is not null
+                          && PinHasher.Verify(req.Pin!, material.PinSalt, material.Iterations, material.PinHash);
+
+            // La fase 2 SIEMPRE se registra: exitos y fallos quedan en
+            // sec.LoginAttempt y el contador de bloqueo vive en el SP.
+            var user = await repo.User_AuthenticatePin_RecordResult(code, isMatch, null, ip, ct);
+
+            var sessionId = await repo.Session_Create(user.UserId, sessionType: 1, null, ip, userAgent, ct: ct);
+            var token = tokens.Issue(user.UserId, sessionId, user.DisplayName, TimeSpan.FromHours(8));
+
+            return Results.Ok(new
+            {
+                token,
+                displayName = user.DisplayName,
+                preferredLocale = user.PreferredLocale,
+                mustChangePin = user.MustChangePin,
+            });
+        }
+        catch (SqlException ex) when (ex.Number is 50101)
+        {
+            return Results.Json(new { error = "Codigo o PIN incorrecto." }, statusCode: 401);
+        }
+        catch (SqlException ex) when (ex.Number is 50102)
+        {
+            return Results.Json(new { error = "Cuenta bloqueada temporalmente. Contacte a su supervisor." }, statusCode: 423);
+        }
+    }
+
+    if (paLogin is null) return await LocalPinLogin();
+
+    PowerAutomateLoginClient.PaLoginResult pa;
     try
     {
-        var material = await repo.User_AuthenticatePin_GetMaterial(req.EmployeeCode.Trim(), null, ip, ct);
-        var isMatch = material is not null
-                      && PinHasher.Verify(req.Pin!, material.PinSalt, material.Iterations, material.PinHash);
-
-        // La fase 2 SIEMPRE se registra: exitos y fallos quedan en sec.LoginAttempt
-        // y el contador de bloqueo vive en el SP, no aqui.
-        var user = await repo.User_AuthenticatePin_RecordResult(req.EmployeeCode.Trim(), isMatch, null, ip, ct);
-
-        var sessionId = await repo.Session_Create(user.UserId, sessionType: 1, null, ip, userAgent, ct: ct);
-        var token = tokens.Issue(user.UserId, sessionId, user.DisplayName, TimeSpan.FromHours(8));
-
-        return Results.Ok(new
-        {
-            token,
-            displayName = user.DisplayName,
-            preferredLocale = user.PreferredLocale,
-            mustChangePin = user.MustChangePin,
-        });
+        pa = await paLogin.Validate(code, req.Pin!, ct);
     }
-    catch (SqlException ex) when (ex.Number is 50101)
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
     {
+        // Flow caido o inalcanzable: el piso sigue con el PIN local.
+        return await LocalPinLogin();
+    }
+
+    if (!pa.IsValid)
         return Results.Json(new { error = "Codigo o PIN incorrecto." }, statusCode: 401);
-    }
-    catch (SqlException ex) when (ex.Number is 50102)
+
+    var kmsUser = await repo.User_GetByEmployeeCode(code, ct);
+    if (kmsUser is null || !kmsUser.IsActive)
+        return Results.Json(
+            new { error = "Empleado validado pero sin usuario en el KMS. Corra el aprovisionamiento." },
+            statusCode: 403);
+
+    var paSessionId = await repo.Session_Create(kmsUser.UserId, sessionType: 1, null, ip, userAgent, ct: ct);
+    var paToken = tokens.Issue(kmsUser.UserId, paSessionId, kmsUser.DisplayName, TimeSpan.FromHours(8));
+
+    // La foto del hub se refresca en cada login. Si falla, el login sigue.
+    var hasPhoto = false;
+    if (!string.IsNullOrEmpty(pa.PhotoB64) && kmsUser.EmployeeId is int empId)
     {
-        return Results.Json(new { error = "Cuenta bloqueada temporalmente. Contacte a su supervisor." }, statusCode: 423);
+        try
+        {
+            var bytes = Convert.FromBase64String(pa.PhotoB64);
+            if (bytes.Length > 0)
+            {
+                await employees.EmployeePhoto_Upsert(kmsUser.UserId, empId, bytes, ct: ct);
+                hasPhoto = true;
+            }
+        }
+        catch (FormatException) { /* foto invalida: se ignora */ }
+        catch (SqlException) { /* no bloquear el login por la foto */ }
     }
+
+    return Results.Ok(new
+    {
+        token = paToken,
+        displayName = kmsUser.DisplayName,
+        preferredLocale = kmsUser.PreferredLocale,
+        mustChangePin = false,
+        hasPhoto,
+    });
 });
+
+/* ---------------------------------------------------------------------
+   GET /api/me/photo — foto del empleado autenticado (base64).
+   --------------------------------------------------------------------- */
+app.MapGet("/api/me/photo", async (
+    ClaimsPrincipal user, EmployeeRepository employees, CancellationToken ct) =>
+{
+    var photo = await employees.EmployeePhoto_Get(ActorUserId(user), null, ct);
+    return photo is null
+        ? Results.NotFound(new { error = "Sin foto registrada." })
+        : Results.Ok(new { contentType = photo.ContentType, photoB64 = Convert.ToBase64String(photo.PhotoBytes) });
+}).RequireAuthorization();
 
 /* ---------------------------------------------------------------------
    POST /api/auth/change-pin   { employeeCode, currentPin, newPin }

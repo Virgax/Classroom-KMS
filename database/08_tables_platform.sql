@@ -2,7 +2,7 @@
    Classroom LMS by Airlink
    08_tables_platform.sql  -  aud (auditoria), intg (integracion), ops (plataforma)
    ============================================================================= */
-USE AIRLINK_LMS;
+USE AIRLINK_KMS;
 GO
 SET NOCOUNT ON;
 GO
